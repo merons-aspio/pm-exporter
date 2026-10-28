@@ -8,7 +8,7 @@ import type { SnapshotStore } from './lib/snapshots';
 import { loadTransitions, recordListTransitions } from './lib/transitions';
 import type { ListTransition } from './lib/transitions';
 import { formatDateTime } from './lib/dates';
-import { prepareReportData, generateHtmlReport, sendEmailReport as sendViaSendGrid } from './lib/email';
+import { prepareReportData, generateHtmlReport, sendEmailReport as sendViaResend } from './lib/email';
 import TasksPage from './pages/TasksPage';
 import DashboardPage from './pages/DashboardPage';
 
@@ -67,7 +67,7 @@ const sendEmailReport = async (tasks: any[]) => {
       const htmlBody = generateHtmlReport(reportData);
 
       // Send via SendGrid
-      const result = await sendViaSendGrid(
+      const result = await sendViaResend(
         'meron.s@aspio.se',       // to
         `Hubstaff PM Exporter - Daily Report (${new Date().toLocaleDateString()})`,  // subject
         htmlBody                                              // htmlBody
