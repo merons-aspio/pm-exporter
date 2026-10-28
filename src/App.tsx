@@ -8,6 +8,7 @@ import type { SnapshotStore } from './lib/snapshots';
 import { loadTransitions, recordListTransitions } from './lib/transitions';
 import type { ListTransition } from './lib/transitions';
 import { formatDateTime } from './lib/dates';
+import { prepareReportData, generateHtmlReport, sendEmailReport as sendViaSendGrid } from './lib/email';
 import TasksPage from './pages/TasksPage';
 import DashboardPage from './pages/DashboardPage';
 
@@ -32,6 +33,7 @@ export default function App() {
   const [snapshots, setSnapshots] = useState<SnapshotStore>(() => loadSnapshots());
   const [transitions, setTransitions] = useState<ListTransition[]>(() => loadTransitions());
   const [view, setView] = useState<View>(getViewFromHash);
+  const [emailSending, setEmailSending] = useState(false);
 
   useEffect(() => {
     const onHashChange = () => setView(getViewFromHash());
@@ -50,6 +52,38 @@ export default function App() {
   const navigate = (next: View) => {
     window.location.hash = next === 'dashboard' ? '#/dashboard' : '#/tasks';
     setView(next);
+  };
+
+/**
+ * Send email report with task data
+ * @param tasks - The tasks data to include in the report
+ */
+const sendEmailReport = async (tasks: any[]) => {
+    setEmailSending(true);
+
+    try {
+      // Prepare report data using the email module
+      const reportData = prepareReportData(tasks);
+      const htmlBody = generateHtmlReport(reportData);
+
+      // Send via SendGrid
+      const result = await sendViaSendGrid(
+        'meron.s@aspio.se',       // to
+        `Hubstaff PM Exporter - Daily Report (${new Date().toLocaleDateString()})`,  // subject
+        htmlBody                                              // htmlBody
+      );
+
+      if (result.success) {
+        alert('Report sent successfully to meron.s@aspio.se!');
+      } else {
+        throw new Error(result.error || 'Unknown SendGrid error');
+      }
+    } catch (error: any) {
+      console.error('Failed to send email report:', error);
+      alert(`Failed to send email report: ${error.message || error}`);
+    } finally {
+      setEmailSending(false);
+    }
   };
 
   const firstLoad = loading && tasks.length === 0;
@@ -131,6 +165,44 @@ export default function App() {
             <RefreshCw size={15} className={loading ? 'spin' : undefined} />
             {loading ? 'Syncing…' : 'Sync'}
           </button>
+
+          {/* Send Email Report Button */}
+          {tasks.length > 0 && (
+            <button
+              onClick={() => sendEmailReport(tasks)}
+              disabled={emailSending}
+              style={{
+                marginLeft: '0.5rem',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '0.4rem',
+                padding: '0.55rem 0.85rem',
+                backgroundColor: '#10b981',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: emailSending ? 'not-allowed' : 'pointer',
+                fontWeight: 600,
+                fontSize: '0.85rem',
+              }}
+            >
+              <svg
+                width={15}
+                height={15}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <line x1="11" y1="2" x2="21" y2="13" />
+                <line x1="21" y1="2" x2="11" y2="13" />
+              </svg>
+              {emailSending ? 'Sending…' : 'Send Report'}
+            </button>
+          )}
         </div>
       </header>
 
