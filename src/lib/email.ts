@@ -3,6 +3,7 @@ import * as sendgrid from '@sendgrid/mail';
 // Set from env or default
 const SENDGRID_API_KEY = import.meta.env.VITE_SENDGRID_API_KEY || '';
 sendgrid.setApiKey(SENDGRID_API_KEY);
+import { DEFAULT_OVERDUE_RULES, isOverdueTask } from './overdueRules';
 
 export interface ReportData {
   totalTasks: number;
@@ -127,7 +128,7 @@ export function generateHtmlReport(data: ReportData): string {
             <tr>
               <td style="padding: 20px; background: #fef2f2; border-top: 1px solid #fecaca;">
                 <h2 style="margin: 0 0 10px; font-size: 16px; color: #b91c1c;">⚠️ Overdue Alert</h2>
-                <p style="margin: 0 0 10px; color: #7f1d1d; font-size: 14px;">${data.overdueTasks} task(s) are currently To Do but past their due date:</p>
+                <p style="margin: 0 0 10px; color: #7f1d1d; font-size: 14px;">${data.overdueTasks} task(s) are currently overdue (To Do, Blocked, or In Progress past due date):</p>
                 <ul style="margin: 0; padding-left: 20px; color: #7f1d1d;">
                   ${sortedActivities
                     .slice(0, 5)
@@ -240,14 +241,8 @@ export function prepareReportData(tasks: any[]): ReportData {
   const blockedTasks = byStatus['blocked'] || 0;
   const todoTasks = byStatus['todo'] || 0;
 
-  // Overdue logic: To Do items with due date in the past
-  const today = new Date();
-  const overdueTasks = tasks.filter((t: any) => {
-    const isTodo = (t.system_status || '').toLowerCase() === 'todo';
-    const dueDate = t.due_on ? new Date(t.due_on) : null;
-    const isPastDue = dueDate && !isNaN(dueDate.getTime()) && dueDate < today;
-    return isTodo && isPastDue;
-  }).length;
+  // Overdue logic using configurable rules (To Do, Blocked, In Progress + past due)
+  const overdueTasks = tasks.filter((t: any) => isOverdueTask(t, DEFAULT_OVERDUE_RULES)).length;
 
   // By assignee
   const byAssignee: Record<string, number[]> = {};

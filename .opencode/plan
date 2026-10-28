@@ -1,0 +1,52 @@
+# Hubstaff PM Exporter - 5 Milestones (Email-Only MVP)
+
+Branch: `develop` (tracking origin/main)
+
+## Milestone 1: Automatic Email Integration (SendGrid) - [COMMITTED]
+- [x] Install `@sendgrid/mail`
+- [x] Create `src/lib/email.ts` (HTML report generation + SendGrid send)
+- [x] Add `.env.local` variables (`VITE_SENDGRID_API_KEY`)
+- [x] Add "Send Report" button in App UI
+- [x] Build passes
+
+Status: Functional placeholder. Needs valid SendGrid API key to send real emails.
+
+---
+
+## Milestone 2: Configurable Overdue Rules
+- [ ] Define overdue logic rules (To Do + due date threshold)
+- [ ] Make it configurable in app (UI for rules)
+- [ ] Apply rules to report data (highlight overdue items)
+
+**OPEN QUESTION:** What default overdue rule? (e.g., "To Do + past due date" vs. "To Do + >3 days past due")
+
+---
+
+## Milestone 3: HTML Report Content / Prompts
+- [x] Basic HTML template with metrics
+- [ ] User-configurable report prompts (what sections to include)
+- [ ] Custom report types (daily, weekly, overdue-only)
+
+---
+
+## Milestone 4: Scheduling System (Scheduled + On-Demand)
+- [x] On-demand button exists
+- [ ] Schedule configuration UI (time/day settings)
+- [ ] Auto-trigger reports at set times
+- [ ] Email queue/retry mechanism
+
+---
+
+## Milestone 5: Data Integration (Supabase / Hubstaff)
+- [x] `src/lib/supabase.ts` created (client initialized)
+- [ ] Pull live task data from Supabase or Hubstaff
+- [ ] Ensure overdue logic reads from pushed/live/in-progress/blocked/to-do
+- [ ] Full end-to-end: fetch → process rules → generate → send
+
+---
+
+## Current Blockers / Questions
+1. Overdue rule default (Milestone 2)?
+2. SendGrid API key for actual email sending?
+3. Which milestone should we focus on next?
+4. Should overdue rules apply to: To Do only, or also Blocked/In Progress with overdue dates?
