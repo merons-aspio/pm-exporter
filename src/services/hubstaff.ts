@@ -1,10 +1,87 @@
 const TASKS_BASE_URL = 'https://tasks.hubstaff.com/api/v1';
+const AUTH_BASE_URL = 'https://api.hubstaff.com/v1';
 
-const headers = {
-  'Authorization': `Bearer ${import.meta.env.VITE_HUBSTAFF_TOKEN}`,
+let currentAccessToken = import.meta.env.VITE_HUBSTAFF_TOKEN;
+let currentRefreshToken = import.meta.env.VITE_HUBSTAFF_REFRESH_TOKEN;
+
+const getHeaders = () => ({
+  'Authorization': `Bearer ${currentAccessToken}`,
   'Accept': '*/*',
   'Content-Type': 'application/json',
-};
+});
+
+/**
+ * Refresh the access token using the refresh token
+ */
+async function refreshAccessToken(): Promise<boolean> {
+  try {
+    const response = await fetch(`${AUTH_BASE_URL}/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: currentRefreshToken,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Failed to refresh token:', await response.text());
+      return false;
+    }
+
+    const tokenData = await response.json();
+    
+    // Update tokens
+    currentAccessToken = tokenData.access_token;
+    currentRefreshToken = tokenData.refresh_token;
+    
+    // Update environment variables (for next session)
+    // Note: This won't persist to .env file automatically
+    // Users need to manually update their .env file
+    console.log('Tokens refreshed successfully');
+    
+    return true;
+  } catch (error) {
+    console.error('Error refreshing token:', error);
+    return false;
+  }
+}
+
+/**
+ * Wrapper for fetch that automatically refreshes token on 401 responses
+ * and retries the request once
+ */
+async function fetchWithTokenRefresh(url: string, options: RequestInit = {}, retryCount = 0): Promise<Response> {
+  // Add authorization header if not present
+  const fetchOptions = {
+    ...options,
+    headers: {
+      ...getHeaders(),
+      ...(options.headers || {}),
+    },
+  };
+
+  const response = await fetch(url, fetchOptions);
+  
+  // If we get a 401 and haven't retried yet, try to refresh the token
+  if (response.status === 401 && retryCount === 0) {
+    console.log('Token expired, attempting refresh...');
+    const refreshSuccess = await refreshAccessToken();
+    
+    if (refreshSuccess) {
+      // Retry the original request with new token
+      return fetchWithTokenRefresh(url, options, retryCount + 1);
+    }
+  }
+  
+  return response;
+}
+
+// We'll keep the original headers variable for backward compatibility
+// during the transition
+const headers = getHeaders();
 
 export interface HubstaffUser {
   id: number;
@@ -80,7 +157,7 @@ export interface EnrichedTaskData {
 
 async function fetchOrgId(): Promise<number | null> {
   try {
-    const res = await fetch(`${TASKS_BASE_URL}/organizations`, { headers });
+    const res = await fetchWithTokenRefresh(`${TASKS_BASE_URL}/organizations`, { headers });
     if (!res.ok) return null;
     const data = await res.json();
     return data.organizations?.[0]?.id ?? null;
@@ -108,7 +185,7 @@ async function fetchMembers(): Promise<HubstaffUser[]> {
 
 async function fetchLabels(projectId: number): Promise<HubstaffLabel[]> {
   try {
-    const res = await fetch(`${TASKS_BASE_URL}/projects/${projectId}/labels`, { headers });
+    const res = await fetchWithTokenRefresh(`${TASKS_BASE_URL}/projects/${projectId}/labels`, { headers });
     if (!res.ok) return [];
     const data = await res.json();
     return data.labels || [];
@@ -120,7 +197,7 @@ async function fetchLabels(projectId: number): Promise<HubstaffLabel[]> {
 
 async function fetchLists(projectId: number): Promise<HubstaffListInfo[]> {
   try {
-    const res = await fetch(`${TASKS_BASE_URL}/projects/${projectId}/lists`, { headers });
+    const res = await fetchWithTokenRefresh(`${TASKS_BASE_URL}/projects/${projectId}/lists`, { headers });
     if (!res.ok) return [];
     const data = await res.json();
     return data.lists || [];
@@ -156,7 +233,7 @@ export async function fetchProjectTasksRich(projectId: number): Promise<Enriched
         url += `&page_start_id=${pageStartId}`;
       }
 
-      const res = await fetch(url, { method: 'GET', headers });
+      const res = await fetchWithTokenRefresh(url, { method: 'GET', headers });
 
       if (!res.ok) {
         throw new Error(`HTTP Error ${res.status}: ${await res.text()}`);
