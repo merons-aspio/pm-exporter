@@ -35,7 +35,11 @@ async function refreshAccessToken(): Promise<boolean> {
         if (text.toLowerCase().includes('invalid_grant') || text.toLowerCase().includes('invalid_token')) {
           currentAccessToken = '';
           currentRefreshToken = '';
-          console.error('Refresh token invalid — please re-authenticate');
+          if (typeof window !== 'undefined') {
+            localStorage.clear();
+            window.location.href = '/';
+          }
+          console.error('Refresh token invalid — redirecting to login');
         }
         return false;
       }
