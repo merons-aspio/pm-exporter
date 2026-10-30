@@ -81,7 +81,7 @@ export default function ExportDialog({
     setScope('filtered');
     setFormat('csv');
     setPreset(defaultPreset);
-    setSelectedFields(fields);
+    setSelectedFields(defaultPreset === 'custom' ? [] : fields);
   }, [open, defaultPreset, fieldsKey]);
 
   useEffect(() => {
@@ -92,6 +92,13 @@ export default function ExportDialog({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, onClose]);
+
+  // If the user picks Custom, leave all fields unchecked by default so they choose deliberately.
+  useEffect(() => {
+    if (preset === 'custom') {
+      setSelectedFields([]);
+    }
+  }, [preset]);
 
   if (!open) return null;
 

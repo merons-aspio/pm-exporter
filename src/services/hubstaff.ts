@@ -1,9 +1,79 @@
 const TASKS_BASE_URL = 'https://tasks.hubstaff.com/api/v1';
-const AUTH_BASE_URL = 'https://account.hubstaff.com';
 
-let currentAccessToken = import.meta.env.VITE_HUBSTAFF_TOKEN;
-let currentRefreshToken = import.meta.env.VITE_HUBSTAFF_REFRESH_TOKEN;
-let refreshPromise: Promise<boolean> | null = null;
+let currentAccessToken = import.meta.env.VITE_HUBSTAFF_TOKEN || '';
+let currentRefreshToken = import.meta.env.VITE_HUBSTAFF_REFRESH_TOKEN || '';
+
+/** Load tokens from session endpoint or localStorage, overriding hardcoded env */
+async function loadTokensFromSession(): Promise<boolean> {
+  try {
+    // Try server session endpoint first
+    const res = await fetch('/api/auth/session');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.access_token) {
+        currentAccessToken = data.access_token;
+        currentRefreshToken = data.refresh_token || '';
+        localStorage.setItem('hubstaff_token', currentAccessToken);
+        localStorage.setItem('hubstaff_refresh_token', currentRefreshToken);
+        return true;
+      }
+    }
+  } catch { /* ignore */ }
+
+  // Fallback to localStorage
+  const storedAccess = localStorage.getItem('hubstaff_access_token') || localStorage.getItem('hubstaff_token');
+  const storedRefresh = localStorage.getItem('hubstaff_refresh_token') || localStorage.getItem('hubstaff_refresh_token');
+  if (storedAccess) {
+    currentAccessToken = storedAccess;
+    currentRefreshToken = storedRefresh || '';
+    return true;
+  }
+  return false;
+}
+let refreshPromise: Promise<string> | null = null;
+
+async function getOrRefreshToken(): Promise<string> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  refreshPromise = (async () => {
+    try {
+      // Refresh happens server-side (Vercel function / Vite dev middleware) so the
+      // client secret never ships to the browser. The server rotates both tokens
+      // and updates the HttpOnly session cookies.
+      const response = await fetch('/api/auth/refresh', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        console.error('Refresh token exchange failed:', response.status, errorText);
+        throw new Error(`Token refresh failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      currentAccessToken = data.access_token;
+      currentRefreshToken = data.refresh_token || currentRefreshToken;
+
+      try {
+        localStorage.setItem('hubstaff_access_token', currentAccessToken);
+        localStorage.setItem('hubstaff_refresh_token', currentRefreshToken);
+      } catch {
+        /* storage may be unavailable */
+      }
+
+      return currentAccessToken;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
 
 const getHeaders = () => ({
   'Authorization': `Bearer ${currentAccessToken}`,
@@ -11,86 +81,47 @@ const getHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
-/**
- * Refresh the access token using the refresh token
- */
-async function refreshAccessToken(): Promise<boolean> {
-  if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
-    try {
-      const response = await fetch(`${AUTH_BASE_URL}/access_tokens`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-          grant_type: 'refresh_token',
-          refresh_token: currentRefreshToken,
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        console.error('Failed to refresh token:', text);
-        if (text.toLowerCase().includes('invalid_grant') || text.toLowerCase().includes('invalid_token')) {
-          currentAccessToken = '';
-          currentRefreshToken = '';
-          if (typeof window !== 'undefined') {
-            localStorage.clear();
-            window.location.href = '/';
-          }
-          console.error('Refresh token invalid — redirecting to login');
-        }
-        return false;
-      }
-
-      const tokenData = await response.json();
-      currentAccessToken = tokenData.access_token;
-      currentRefreshToken = tokenData.refresh_token;
-      console.log('Tokens refreshed successfully');
-      return true;
-    } catch (error) {
-      console.error('Error refreshing token:', error);
-      return false;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-  return refreshPromise;
-}
-
-// Force refresh on module load
-refreshAccessToken().catch(() => {});
+// Load from session/store first, then attempt refresh
+loadTokensFromSession().catch(() => {});
 
 /**
  * Wrapper for fetch that automatically refreshes token on 401 responses
  * and retries the request once
  */
-async function fetchWithTokenRefresh(url: string, options: RequestInit = {}, retryCount = 0): Promise<Response> {
-  // Add authorization header if not present
-  const fetchOptions = {
+async function fetchWithTokenRefresh(url: string, options: RequestInit = {}): Promise<Response> {
+  let token = currentAccessToken;
+
+  let response = await fetch(url, {
     ...options,
     headers: {
-      ...getHeaders(),
-      ...(options.headers || {}),
+      ...options.headers,
+      'Authorization': `Bearer ${token}`,
     },
-  };
+  });
 
-  const response = await fetch(url, fetchOptions);
-  
-  // If we get a 401 and haven't retried yet, try to refresh the token
-  if (response.status === 401 && retryCount === 0) {
-    console.log('Token expired, attempting refresh...');
-    const refreshSuccess = await refreshAccessToken();
-    
-    if (refreshSuccess) {
-      // Retry the original request with new token
-      return fetchWithTokenRefresh(url, options, retryCount + 1);
-    }
+  if (response.status === 401) {
+    console.log('Token expired or unauthorized, attempting refresh...');
+
+    token = await getOrRefreshToken();
+
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        ...options.headers,
+        'Authorization': `Bearer ${token}`,
+      },
+    });
   }
-  
+
   return response;
 }
+
+export const getAssigneeNames = (assigneeIds: number[], userMap: Record<number, string>) => {
+  if (!assigneeIds || assigneeIds.length === 0) return 'Unassigned';
+  return assigneeIds
+    .map((id) => userMap[id] || `User #${id}`)
+    .join(', ');
+};
 
 // We'll keep the original headers variable for backward compatibility
 // during the transition
@@ -170,7 +201,7 @@ export interface EnrichedTaskData {
 
 async function fetchOrgId(): Promise<number | null> {
   try {
-    const res = await fetchWithTokenRefresh(`${TASKS_BASE_URL}/organizations`, { headers });
+    const res = await fetchWithTokenRefresh(`https://tasks.hubstaff.com/api/v1/organizations`, { headers });
     if (!res.ok) return null;
     const data = await res.json();
     return data.organizations?.[0]?.id ?? null;
@@ -180,19 +211,33 @@ async function fetchOrgId(): Promise<number | null> {
   }
 }
 
-async function fetchMembers(): Promise<HubstaffUser[]> {
+export async function fetchMembers(orgId: string | number): Promise<Record<number, string>> {
   try {
-    const orgId = await fetchOrgId();
-    if (!orgId) return [];
+    const response = await fetchWithTokenRefresh(
+      `https://tasks.hubstaff.com/api/v1/organizations/${orgId}/members`
+    );
 
-    const res = await fetch(`${TASKS_BASE_URL}/organizations/${orgId}/members`, { headers });
-    if (!res.ok) return [];
+    if (!response.ok) {
+      console.warn('Failed to fetch members:', response.status);
+      return {};
+    }
 
-    const data = await res.json();
-    return data.members || [];
-  } catch (error) {
-    console.warn('Could not load members:', error);
-    return [];
+    const data = await response.json();
+    const userMap: Record<number, string> = {};
+
+    if (data.members && Array.isArray(data.members)) {
+      data.members.forEach((m: { id: number; name?: string; email?: string }) => {
+        const userId = Number(m.id);
+        if (userId) {
+          userMap[userId] = m.name || m.email || `User #${userId}`;
+        }
+      });
+    }
+
+    return userMap;
+  } catch (err) {
+    console.error('Error fetching members:', err);
+    return {};
   }
 }
 
@@ -230,13 +275,14 @@ export async function fetchProjectTasksRich(projectId: number): Promise<Enriched
   let hasMore = true;
 
   try {
+    const orgId = await fetchOrgId();
     const [members, labels, lists] = await Promise.all([
-      fetchMembers(),
+      fetchMembers(orgId || 163018),
       fetchLabels(projectId),
       fetchLists(projectId),
     ]);
 
-    const memberNameById = new Map(members.map((m) => [m.id, m.name]));
+    const memberNameById = new Map<number, string>(Object.entries(members).map(([k, v]) => [Number(k), v]));
     const labelNameById = new Map(labels.map((l) => [l.id, l.name]));
     const listById = new Map(lists.map((l) => [l.id, l]));
 
@@ -255,7 +301,13 @@ export async function fetchProjectTasksRich(projectId: number): Promise<Enriched
       const data = await res.json();
 
       if (data.users && Array.isArray(data.users)) {
-        data.users.forEach((u: HubstaffUser) => memberNameById.set(u.id, u.name));
+        data.users.forEach((user: { id: number; name?: string; first_name?: string; last_name?: string }) => {
+          const userId = Number(user.id);
+          if (userId) {
+            const fullName = user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim();
+            memberNameById.set(userId, fullName || `User #${userId}`);
+          }
+        });
       }
 
       const pageTasks: HubstaffTaskRaw[] = data.tasks || [];
@@ -275,7 +327,7 @@ export async function fetchProjectTasksRich(projectId: number): Promise<Enriched
 
     return uniqueTasks
       .map((t) => {
-        const assigneeIds = t.assignee_ids || (t.assigned_to_id ? [t.assigned_to_id] : []);
+        const assigneeIds = (t.assignee_ids || (t.assigned_to_id ? [t.assigned_to_id] : [])).map(Number);
         const assigneeNames = assigneeIds.map((id) => memberNameById.get(id) || `User #${id}`);
 
         const labelIds = t.label_ids || [];

@@ -10,11 +10,15 @@ import type { ListTransition } from './lib/transitions';
 import { formatDateTime } from './lib/dates';
 import TasksPage from './pages/TasksPage';
 import DashboardPage from './pages/DashboardPage';
+import LoginPage from './pages/LoginPage';
 
-type View = 'tasks' | 'dashboard';
+type View = 'tasks' | 'dashboard' | 'login';
 
 function getViewFromHash(): View {
-  return window.location.hash.replace('#/', '') === 'dashboard' ? 'dashboard' : 'tasks';
+  const hash = window.location.hash.replace('#/', '');
+  if (hash === 'dashboard') return 'dashboard';
+  if (hash === 'login') return 'login';
+  return 'tasks';
 }
 
 export default function App() {
@@ -48,7 +52,7 @@ export default function App() {
   }, [tasks, mapping, overrides]);
 
   const navigate = (next: View) => {
-    window.location.hash = next === 'dashboard' ? '#/dashboard' : '#/tasks';
+    window.location.hash = next === 'dashboard' ? '#/dashboard' : next === 'login' ? '#/login' : '#/tasks';
     setView(next);
   };
 
@@ -169,7 +173,9 @@ export default function App() {
         </div>
       )}
 
-      {firstLoad ? (
+      {view === 'login' ? (
+        <LoginPage />
+      ) : firstLoad ? (
         <div style={{ ...cardStyle, textAlign: 'center', color: '#64748b', padding: '3rem' }}>
           Loading Marketplace 2.0.0 tasks…
         </div>
