@@ -21,6 +21,12 @@ function parseMapping(raw: string | null, fallback: StatusMapping): StatusMappin
     console.warn('Could not read status mapping.', error);
   }
 
+  // Older saved mappings folded Current Sprint into In Progress. Promote the
+  // list to its own bucket once so the dashboard can split the two statuses.
+  if (!Object.values(result).includes('current_sprint')) {
+    result['Current sprint'] = 'current_sprint';
+  }
+
   return result;
 }
 

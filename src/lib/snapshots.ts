@@ -184,13 +184,34 @@ export function getBoardForDate(
 
   const snapshot = snapshots[date];
   if (snapshot) {
+    const byBucket = normalizeBuckets(snapshot.byBucket);
+    const byAssigneeBucket = normalizeAssigneeBuckets(snapshot.byAssigneeBucket);
+
+    // Migrate snapshots captured before Current Sprint became its own bucket:
+    // those counts were folded into In Progress. The raw list counts are still
+    // present, so split them back out when the snapshot is read.
+    if (!Object.prototype.hasOwnProperty.call(snapshot.byBucket, 'current_sprint')) {
+      const legacySprint = Number(snapshot.byList?.['Current sprint']) || 0;
+      if (legacySprint > 0) {
+        byBucket.current_sprint = legacySprint;
+        byBucket.in_progress = Math.max(0, byBucket.in_progress - legacySprint);
+      }
+
+      Object.entries(byAssigneeBucket).forEach(([name, counts]) => {
+        const sprint = Number(snapshot.byAssigneeList?.[name]?.['Current sprint']) || 0;
+        if (sprint <= 0) return;
+        counts.current_sprint = sprint;
+        counts.in_progress = Math.max(0, counts.in_progress - sprint);
+      });
+    }
+
     return {
       date,
       source: 'snapshot',
       capturedAt: snapshot.capturedAt,
       total: snapshot.total,
-      byBucket: normalizeBuckets(snapshot.byBucket),
-      byAssigneeBucket: normalizeAssigneeBuckets(snapshot.byAssigneeBucket),
+      byBucket,
+      byAssigneeBucket,
       byList: { ...snapshot.byList },
       byAssigneeList: normalizeAssigneeLists(snapshot.byAssigneeList),
     };

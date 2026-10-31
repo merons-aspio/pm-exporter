@@ -209,8 +209,9 @@ export function buildStandup(
 
       if (movedTo) person.moved.push(item);
       if (unverified) person.unverified.push(item);
-      if (bucket === 'in_progress') person.wip.push(item);
-      if (bucket === 'in_progress' && late > 0) person.overdue.push(item);
+      const activeWork = bucket === 'in_progress' || bucket === 'current_sprint';
+      if (activeWork) person.wip.push(item);
+      if (activeWork && late > 0) person.overdue.push(item);
       if (bucket === 'todo' && dueOnOrBefore) person.todo.push(item);
       if (bucket === 'blocked') person.blocked.push(item);
     });

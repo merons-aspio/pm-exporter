@@ -1,24 +1,34 @@
-import { useEffect, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
-import { cardStyle } from './components/ui';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Download, Kanban, RefreshCw } from 'lucide-react';
 import { useTasks } from './hooks/useTasks';
 import { useStatusSettings } from './hooks/useStatusSettings';
-import { captureSnapshot, loadSnapshots } from './lib/snapshots';
+import { useToast } from './components/ToastProvider';
+import { captureSnapshot, getBoardForDate, loadSnapshots } from './lib/snapshots';
 import type { SnapshotStore } from './lib/snapshots';
 import { loadTransitions, recordListTransitions } from './lib/transitions';
 import type { ListTransition } from './lib/transitions';
-import { formatDateTime } from './lib/dates';
+import {
+  endOfDayMs,
+  formatDateTime,
+  formatPeriodLabel,
+  getPeriodRange,
+  parseDate,
+  todayKey,
+} from './lib/dates';
+import type { PeriodKey } from './lib/dates';
 import TasksPage from './pages/TasksPage';
 import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
+import ExportStudioModal from './components/ExportStudioModal';
+import type { ExportScope } from './components/ExportStudioModal';
 
 type View = 'tasks' | 'dashboard' | 'login';
 
 function getViewFromHash(): View {
   const hash = window.location.hash.replace('#/', '');
-  if (hash === 'dashboard') return 'dashboard';
+  if (hash === 'tasks') return 'tasks';
   if (hash === 'login') return 'login';
-  return 'tasks';
+  return 'dashboard';
 }
 
 export default function App() {
@@ -33,9 +43,16 @@ export default function App() {
     resetMappingToBuiltIn,
     setOverride,
   } = useStatusSettings();
+  const toast = useToast();
   const [snapshots, setSnapshots] = useState<SnapshotStore>(() => loadSnapshots());
   const [transitions, setTransitions] = useState<ListTransition[]>(() => loadTransitions());
   const [view, setView] = useState<View>(getViewFromHash);
+  const [period, setPeriod] = useState<PeriodKey>('thisWeek');
+  const [customStart, setCustomStart] = useState(todayKey());
+  const [customEnd, setCustomEnd] = useState(todayKey());
+  const [exportOpen, setExportOpen] = useState(false);
+  const [defaultExportScope, setDefaultExportScope] = useState<ExportScope>('dashboard');
+  const lastErrorRef = useRef<string | null>(null);
 
   useEffect(() => {
     const onHashChange = () => setView(getViewFromHash());
@@ -51,136 +68,144 @@ export default function App() {
     setTransitions(recordListTransitions(tasks));
   }, [tasks, mapping, overrides]);
 
+  useEffect(() => {
+    if (error && error !== lastErrorRef.current) {
+      lastErrorRef.current = error;
+      toast.push(`Could not load tasks: ${error}`, 'error');
+    }
+  }, [error, toast]);
+
+  const range = useMemo(
+    () => getPeriodRange(period, customStart, customEnd),
+    [period, customStart, customEnd]
+  );
+
+  const board = useMemo(
+    () => getBoardForDate(range.end, tasks, mapping, overrides, snapshots),
+    [range.end, tasks, mapping, overrides, snapshots]
+  );
+
+  const boardTasks = useMemo(() => {
+    if (board.source === 'snapshot') return null;
+    if (board.source !== 'approximate') return tasks;
+    const end = endOfDayMs(range.end);
+    return tasks.filter((task) => {
+      const created = parseDate(task.created_at);
+      return created !== null && created.getTime() <= end;
+    });
+  }, [board.source, range.end, tasks]);
+
   const navigate = (next: View) => {
     window.location.hash = next === 'dashboard' ? '#/dashboard' : next === 'login' ? '#/login' : '#/tasks';
     setView(next);
   };
 
+  const openExportStudio = () => {
+    setDefaultExportScope(view === 'tasks' ? 'tasks' : 'dashboard');
+    setExportOpen(true);
+  };
+
+  if (view === 'login') {
+    return <LoginPage />;
+  }
+
   const firstLoad = loading && tasks.length === 0;
 
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: '#f8fafc',
-        padding: '1.5rem',
-        fontFamily: 'system-ui, sans-serif',
-      }}
-    >
-      <header
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: '1rem',
-          flexWrap: 'wrap',
-          marginBottom: '1.1rem',
-        }}
-      >
-        <div>
-          <h1 style={{ margin: 0, fontSize: '1.55rem', color: '#0f172a' }}>Hubstaff PM Exporter</h1>
-          <p style={{ margin: '0.25rem 0 0', color: '#64748b', fontSize: '0.86rem' }}>
-            Marketplace 2.0.0 · {firstLoad ? 'Loading tasks…' : `${tasks.length} tasks`}
-            {lastSyncedAt ? ` · last synced ${formatDateTime(lastSyncedAt)}` : ''}
-          </p>
-        </div>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <div
-            style={{
-              display: 'inline-flex',
-              border: '1px solid #cbd5e1',
-              borderRadius: 6,
-              overflow: 'hidden',
-              backgroundColor: '#fff',
-            }}
-          >
-            {(['tasks', 'dashboard'] as const).map((item) => (
-              <button
-                key={item}
-                onClick={() => navigate(item)}
-                style={{
-                  padding: '0.5rem 0.9rem',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontSize: '0.85rem',
-                  fontWeight: 600,
-                  backgroundColor: view === item ? '#0f766e' : '#fff',
-                  color: view === item ? '#fff' : '#475569',
-                }}
-              >
-                {item === 'tasks' ? 'Tasks' : 'Dashboard'}
-              </button>
-            ))}
-          </div>
-
+    <div className="flex min-h-screen flex-col bg-slate-50 text-slate-800">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white shadow-sm">
+        <div className="mx-auto flex min-h-16 w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-6 lg:px-8">
           <button
-            onClick={sync}
-            disabled={loading}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.4rem',
-              padding: '0.55rem 0.85rem',
-              backgroundColor: '#2563eb',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 6,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontWeight: 600,
-              fontSize: '0.85rem',
-              opacity: loading ? 0.7 : 1,
-            }}
+            type="button"
+            onClick={() => navigate('dashboard')}
+            className="flex items-center gap-3 text-left"
           >
-            <RefreshCw size={15} className={loading ? 'spin' : undefined} />
-            {loading ? 'Syncing…' : 'Sync'}
+            <div className="flex items-center justify-center rounded-lg bg-indigo-600 p-2 text-white shadow-md shadow-indigo-100">
+              <Kanban className="h-5 w-5" />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold leading-tight text-slate-900">Hubstaff PM Simplifier</h1>
+              <p className="text-xs font-medium text-slate-500">
+                Clean &amp; Focused PM Analytics
+                {!firstLoad ? ` · ${tasks.length} tasks` : ''}
+              </p>
+            </div>
           </button>
+
+          <nav className="order-3 flex w-full rounded-xl border border-slate-200/60 bg-slate-100 p-1 text-sm font-medium md:order-none md:w-auto">
+            {(['dashboard', 'tasks'] as const).map((item) => {
+              const active = view === item;
+              return (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => navigate(item)}
+                  className={`flex-1 rounded-lg px-4 py-1.5 font-semibold transition-all md:flex-none ${
+                    active
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {item === 'dashboard' ? 'Dashboard' : 'Tasks Matrix'}
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={sync}
+              disabled={loading}
+              title={lastSyncedAt ? `Last synced ${formatDateTime(lastSyncedAt)}` : 'Sync tasks'}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Sync tasks"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'spin' : ''}`} />
+            </button>
+            <button
+              type="button"
+              onClick={openExportStudio}
+              className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-100 transition-all hover:bg-indigo-700 active:scale-95"
+            >
+              <Download className="h-4 w-4" />
+              <span>Export Data</span>
+            </button>
+          </div>
         </div>
       </header>
 
       {error && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.75rem',
-            flexWrap: 'wrap',
-            color: '#b91c1c',
-            backgroundColor: '#fef2f2',
-            border: '1px solid #fecaca',
-            padding: '0.8rem 1rem',
-            borderRadius: 6,
-            marginBottom: '1rem',
-          }}
-        >
-          <span>
+        <div className="mx-auto mt-4 flex w-full max-w-7xl flex-wrap items-center gap-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <span className="flex-1">
             <strong>Could not load tasks.</strong> {error}
           </span>
           <button
+            type="button"
             onClick={sync}
-            style={{
-              padding: '0.35rem 0.65rem',
-              fontSize: '0.78rem',
-              border: '1px solid #fca5a5',
-              borderRadius: 4,
-              backgroundColor: '#fff',
-              color: '#b91c1c',
-              cursor: 'pointer',
-            }}
+            className="rounded border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
           >
             Retry
           </button>
         </div>
       )}
 
-      {view === 'login' ? (
-        <LoginPage />
-      ) : firstLoad ? (
-        <div style={{ ...cardStyle, textAlign: 'center', color: '#64748b', padding: '3rem' }}>
-          Loading Marketplace 2.0.0 tasks…
-        </div>
+      {firstLoad ? (
+        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500 shadow-sm">
+            Loading Marketplace 2.0.0 tasks…
+          </div>
+        </main>
       ) : view === 'tasks' ? (
-        <TasksPage tasks={tasks} mapping={mapping} overrides={overrides} onOverride={setOverride} />
+        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-bold text-slate-900">Tasks Matrix</h2>
+            <p className="text-sm text-slate-500">
+              Filter, inspect and export the full Marketplace 2.0.0 task set.
+            </p>
+          </div>
+          <TasksPage tasks={tasks} mapping={mapping} overrides={overrides} onOverride={setOverride} />
+        </main>
       ) : (
         <DashboardPage
           tasks={tasks}
@@ -196,13 +221,35 @@ export default function App() {
           onResetMappingToDefault={resetMappingToDefault}
           onResetMappingToBuiltIn={resetMappingToBuiltIn}
           hasSavedDefault={hasSavedDefault}
+          period={period}
+          customStart={customStart}
+          customEnd={customEnd}
+          onSelectPeriod={setPeriod}
+          onCustomRangeChange={(start, end) => {
+            setCustomStart(start);
+            setCustomEnd(end);
+          }}
+          onOpenTasks={() => navigate('tasks')}
         />
       )}
 
-      <p style={{ marginTop: '1.25rem', fontSize: '0.72rem', color: '#94a3b8' }}>
-        Status mappings and task overrides are saved locally. Daily snapshots are captured on every load/sync and kept
-        for 90 days; past days without a snapshot are shown as approximate.
-      </p>
+      <footer className="mx-auto w-full max-w-7xl px-4 pb-6 pt-2 text-[11px] text-slate-400 sm:px-6 lg:px-8">
+        Status mappings and task overrides are saved locally. Daily snapshots are captured on every
+        load/sync and kept for 90 days; past days without a snapshot are shown as approximate.
+      </footer>
+
+      <ExportStudioModal
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        defaultScope={defaultExportScope}
+        tasks={tasks}
+        mapping={mapping}
+        overrides={overrides}
+        board={board}
+        boardTasks={boardTasks}
+        range={range}
+        periodLabel={formatPeriodLabel(period, range)}
+      />
     </div>
   );
 }
