@@ -7,10 +7,11 @@ import {
 
 interface PipelineChartProps {
   counts: Record<DashboardStatus, number>;
+  periodLabel: string;
   onSelect?: (status: DashboardStatus) => void;
 }
 
-export default function PipelineChart({ counts, onSelect }: PipelineChartProps) {
+export default function PipelineChart({ counts, periodLabel, onSelect }: PipelineChartProps) {
   const max = Math.max(1, ...DASHBOARD_STATUS_ORDER.map((status) => counts[status]));
 
   return (
@@ -21,7 +22,9 @@ export default function PipelineChart({ counts, onSelect }: PipelineChartProps) 
             <BarChart3 className="h-4 w-4 text-indigo-600" />
             <h3 className="text-sm font-bold text-slate-900">7-Status Workload Overview</h3>
           </div>
-          <p className="text-xs text-slate-500">Visual distribution across the streamlined lifecycle</p>
+          <p className="text-xs text-slate-500">
+            Effective distribution · <span className="font-medium text-slate-600">{periodLabel}</span>
+          </p>
         </div>
         <span className="text-xs font-semibold text-slate-400">All Assignees</span>
       </div>

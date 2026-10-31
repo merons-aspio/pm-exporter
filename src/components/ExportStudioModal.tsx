@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   DownloadCloud,
   FileJson,
@@ -8,19 +8,22 @@ import {
   X,
 } from 'lucide-react';
 import type { EnrichedTaskData } from '../services/hubstaff';
-import type { BoardState } from '../lib/snapshots';
 import type { StatusMapping, StatusOverrides } from '../lib/status';
 import {
+  DASHBOARD_DATE_BASIS_LABEL,
   DASHBOARD_STATUS_META,
   DASHBOARD_STATUS_ORDER,
   computeAssigneePerformance,
-  dashboardCountsFromBoard,
-  dashboardStatusRows,
+  countDashboardStatuses,
   getDashboardStatus,
+  summarizeDashboardStatuses,
+  type DashboardDateBasis,
   type DashboardStatus,
+  type DashboardStatusModes,
 } from '../lib/dashboard';
+import { WEEK_START_OPTIONS, fileTimestamp } from '../lib/dates';
+import type { WeekStart } from '../lib/dates';
 import { buildExportRows } from '../lib/exportRows';
-import { fileTimestamp } from '../lib/dates';
 import { downloadCsv, downloadJson, downloadText } from '../lib/csv';
 import { useToast } from './ToastProvider';
 
@@ -34,10 +37,11 @@ interface ExportStudioModalProps {
   tasks: EnrichedTaskData[];
   mapping: StatusMapping;
   overrides: StatusOverrides;
-  board: BoardState;
-  boardTasks: EnrichedTaskData[] | null;
   range: { start: string; end: string };
   periodLabel: string;
+  dateBasis: DashboardDateBasis;
+  weekStart: WeekStart;
+  statusModes: DashboardStatusModes;
 }
 
 const FORMATS: Array<{ value: ExportFormat; label: string; icon: typeof FileSpreadsheet; color: string }> = [
@@ -46,6 +50,14 @@ const FORMATS: Array<{ value: ExportFormat; label: string; icon: typeof FileSpre
   { value: 'txt', label: 'TXT / File', icon: FileText, color: 'text-indigo-600' },
 ];
 
+const WEEK_START_LABEL = Object.fromEntries(
+  WEEK_START_OPTIONS.map((option) => [option.value, option.label])
+) as Record<WeekStart, string>;
+
+function modeLabel(mode: DashboardStatusModes[DashboardStatus]): string {
+  return mode === 'all' ? 'All time' : 'Period';
+}
+
 export default function ExportStudioModal({
   open,
   onClose,
@@ -53,15 +65,17 @@ export default function ExportStudioModal({
   tasks,
   mapping,
   overrides,
-  board,
-  boardTasks,
   range,
   periodLabel,
+  dateBasis,
+  weekStart,
+  statusModes,
 }: ExportStudioModalProps) {
   const toast = useToast();
   const [scope, setScope] = useState<ExportScope>(defaultScope);
   const [format, setFormat] = useState<ExportFormat>('csv');
   const [selectedStatuses, setSelectedStatuses] = useState<DashboardStatus[]>([]);
+  const selectAllRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -80,6 +94,43 @@ export default function ExportStudioModal({
   }, [open, onClose]);
 
   const selectedSet = useMemo(() => new Set(selectedStatuses), [selectedStatuses]);
+  const allSelected = selectedStatuses.length === DASHBOARD_STATUS_ORDER.length;
+  const someSelected = selectedStatuses.length > 0 && !allSelected;
+
+  useEffect(() => {
+    if (selectAllRef.current) selectAllRef.current.indeterminate = someSelected;
+  }, [someSelected]);
+
+  const statusSummary = useMemo(
+    () =>
+      summarizeDashboardStatuses(
+        tasks,
+        mapping,
+        overrides,
+        range,
+        dateBasis,
+        statusModes
+      ),
+    [tasks, mapping, overrides, range, dateBasis, statusModes]
+  );
+
+  const taskStatusCounts = useMemo(
+    () => countDashboardStatuses(tasks, mapping, overrides),
+    [tasks, mapping, overrides]
+  );
+
+  const assignees = useMemo(
+    () =>
+      computeAssigneePerformance(
+        tasks,
+        mapping,
+        overrides,
+        range,
+        dateBasis,
+        statusModes
+      ),
+    [tasks, mapping, overrides, range, dateBasis, statusModes]
+  );
 
   const taskRows = useMemo(() => {
     if (scope !== 'tasks') return [];
@@ -93,14 +144,6 @@ export default function ExportStudioModal({
     }));
   }, [scope, tasks, mapping, overrides, selectedSet]);
 
-  const dashboardData = useMemo(() => {
-    const counts = dashboardCountsFromBoard(board);
-    const summary = dashboardStatusRows(counts).filter((row) => selectedSet.has(row.status));
-    const assignees = computeAssigneePerformance(board, boardTasks, mapping, overrides);
-
-    return { counts, summary, assignees };
-  }, [board, boardTasks, mapping, overrides, selectedSet]);
-
   if (!open) return null;
 
   const toggleStatus = (status: DashboardStatus) => {
@@ -109,18 +152,40 @@ export default function ExportStudioModal({
     );
   };
 
-  const selectAll = () => setSelectedStatuses([...DASHBOARD_STATUS_ORDER]);
-  const deselectAll = () => setSelectedStatuses([]);
+  const toggleAll = () => {
+    setSelectedStatuses((current) =>
+      current.length === DASHBOARD_STATUS_ORDER.length ? [] : [...DASHBOARD_STATUS_ORDER]
+    );
+  };
+
+  const selectedTaskCount = selectedStatuses.reduce(
+    (total, status) =>
+      total +
+      (scope === 'dashboard' ? statusSummary[status].effective : taskStatusCounts[status]),
+    0
+  );
+
+  const selectedSummaryRows = DASHBOARD_STATUS_ORDER.filter((status) =>
+    selectedSet.has(status)
+  ).map((status) => statusSummary[status]);
 
   const buildDashboardCsvRows = (): Record<string, unknown>[] => {
     const rows: Record<string, unknown>[] = [];
 
-    dashboardData.summary.forEach((row) => {
+    selectedSummaryRows.forEach((row) => {
       rows.push({
         Section: 'Status Summary',
-        Status: row.label,
+        Period: periodLabel,
+        'Date Basis': DASHBOARD_DATE_BASIS_LABEL[dateBasis],
+        'Week Start': WEEK_START_LABEL[weekStart],
+        'Range Start': range.start,
+        'Range End': range.end,
+        Status: DASHBOARD_STATUS_META[row.status].label,
+        Mode: modeLabel(row.mode),
+        'Filtered Count': row.filtered,
+        'Total Count': row.total,
         Assignee: '',
-        Count: row.count,
+        'Task Count': row.effective,
         'Pushed/Live': '',
         Overdue: '',
         Blocked: '',
@@ -129,12 +194,20 @@ export default function ExportStudioModal({
       });
     });
 
-    dashboardData.assignees.forEach((row) => {
+    assignees.forEach((row) => {
       rows.push({
         Section: 'Assignee Performance',
+        Period: periodLabel,
+        'Date Basis': DASHBOARD_DATE_BASIS_LABEL[dateBasis],
+        'Week Start': WEEK_START_LABEL[weekStart],
+        'Range Start': range.start,
+        'Range End': range.end,
         Status: '',
+        Mode: '',
+        'Filtered Count': '',
+        'Total Count': '',
         Assignee: row.name,
-        Count: row.total,
+        'Task Count': row.total,
         'Pushed/Live': selectedSet.has('pushed') ? row.pushed : '',
         Overdue:
           selectedSet.has('todo') || selectedSet.has('in_progress')
@@ -152,14 +225,27 @@ export default function ExportStudioModal({
   const buildDashboardJson = () => ({
     generatedAt: new Date().toISOString(),
     scope: 'dashboard',
-    period: periodLabel,
-    range,
-    statuses: dashboardData.summary.map((row) => row.label),
-    statusSummary: dashboardData.summary.map((row) => ({
-      status: row.label,
-      count: row.count,
+    filter: {
+      period: periodLabel,
+      range,
+      dateBasis,
+      dateBasisLabel: DASHBOARD_DATE_BASIS_LABEL[dateBasis],
+      weekStart,
+      weekStartLabel: WEEK_START_LABEL[weekStart],
+    },
+    statuses: selectedSummaryRows.map((row) => DASHBOARD_STATUS_META[row.status].label),
+    statusScope: selectedSummaryRows.map((row) => ({
+      status: DASHBOARD_STATUS_META[row.status].label,
+      mode: row.mode,
     })),
-    assignees: dashboardData.assignees.map((row) => ({
+    statusSummary: selectedSummaryRows.map((row) => ({
+      status: DASHBOARD_STATUS_META[row.status].label,
+      mode: row.mode,
+      filtered: row.filtered,
+      total: row.total,
+      effective: row.effective,
+    })),
+    assignees: assignees.map((row) => ({
       assignee: row.name,
       total: row.total,
       pushedLive: selectedSet.has('pushed') ? row.pushed : null,
@@ -178,16 +264,22 @@ export default function ExportStudioModal({
       'Hubstaff PM Simplifier — Dashboard Export',
       `Period: ${periodLabel}`,
       `Range: ${range.start} → ${range.end}`,
+      `Date basis: ${DASHBOARD_DATE_BASIS_LABEL[dateBasis]}`,
+      `Week starts: ${WEEK_START_LABEL[weekStart]}`,
       `Generated: ${new Date().toLocaleString()}`,
-      `Statuses: ${dashboardData.summary.map((row) => row.label).join(', ')}`,
+      `Statuses: ${selectedSummaryRows.map((row) => DASHBOARD_STATUS_META[row.status].label).join(', ')}`,
       '',
       'STATUS SUMMARY',
     ];
 
-    dashboardData.summary.forEach((row) => lines.push(`- ${row.label}: ${row.count}`));
+    selectedSummaryRows.forEach((row) =>
+      lines.push(
+        `- ${DASHBOARD_STATUS_META[row.status].label} [${modeLabel(row.mode)}]: ${row.filtered} filtered / ${row.total} total → ${row.effective} included`
+      )
+    );
 
     lines.push('', 'ASSIGNEE PERFORMANCE');
-    dashboardData.assignees.forEach((row) => {
+    assignees.forEach((row) => {
       const parts = [`total ${row.total}`];
       if (selectedSet.has('pushed')) parts.push(`pushed/live ${row.pushed}`);
       if (selectedSet.has('todo') || selectedSet.has('in_progress')) {
@@ -208,9 +300,8 @@ export default function ExportStudioModal({
       return;
     }
 
-    const baseName = `pm_${scope}_${range.start}_to_${range.end}_${fileTimestamp()}`;
-
     if (scope === 'dashboard') {
+      const baseName = `pm_dashboard_${range.start}_to_${range.end}_${dateBasis}_week-${weekStart}_${fileTimestamp()}`;
       if (format === 'csv') downloadCsv(buildDashboardCsvRows(), `${baseName}.csv`);
       else if (format === 'json') downloadJson(buildDashboardJson(), `${baseName}.json`);
       else downloadText(buildDashboardText(), `${baseName}.txt`);
@@ -219,6 +310,7 @@ export default function ExportStudioModal({
         toast.push('No tasks match the selected statuses.', 'error');
         return;
       }
+      const baseName = `pm_tasks_${fileTimestamp()}`;
       if (format === 'csv') downloadCsv(taskRows, `${baseName}.csv`);
       else if (format === 'json') downloadJson(taskRows, `${baseName}.json`);
       else {
@@ -229,11 +321,13 @@ export default function ExportStudioModal({
       }
     }
 
-    toast.push(`Export generated! Filtered by ${selectedStatuses.length} statuses.`);
+    toast.push(
+      `Export generated! ${selectedStatuses.length} statuses · ${selectedTaskCount} tasks represented.`
+    );
     onClose();
   };
 
-  const rowCount = scope === 'dashboard' ? dashboardData.summary.length : taskRows.length;
+  const rowCount = scope === 'dashboard' ? selectedTaskCount : taskRows.length;
 
   return (
     <div
@@ -242,7 +336,7 @@ export default function ExportStudioModal({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl"
+        className="flex max-h-[90vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-2xl"
       >
         <div className="flex items-center justify-between bg-slate-900 p-5 text-white">
           <div className="flex items-center gap-2.5">
@@ -270,8 +364,8 @@ export default function ExportStudioModal({
             <div className="grid grid-cols-2 gap-3">
               {(
                 [
-                  { value: 'dashboard', title: 'Dashboard View', subtitle: 'Summary & Metrics' },
-                  { value: 'tasks', title: 'Tasks Matrix View', subtitle: 'Full Task Details' },
+                  { value: 'dashboard', title: 'Dashboard View', subtitle: 'Period summary & metrics' },
+                  { value: 'tasks', title: 'Tasks Matrix View', subtitle: 'Full task details' },
                 ] as const
               ).map((option) => {
                 const active = scope === option.value;
@@ -292,6 +386,11 @@ export default function ExportStudioModal({
                 );
               })}
             </div>
+            <p className="mt-2 text-[10px] text-slate-400">
+              {scope === 'dashboard'
+                ? `${periodLabel} · ${DASHBOARD_DATE_BASIS_LABEL[dateBasis]} · week starts ${WEEK_START_LABEL[weekStart]}`
+                : 'Tasks Matrix export includes the full task set; dashboard period filters do not apply.'}
+            </p>
           </div>
 
           <div>
@@ -326,44 +425,68 @@ export default function ExportStudioModal({
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-700">
                 3. Select Pipeline Statuses to Include
               </label>
-              <div className="space-x-2 text-[11px]">
-                <button
-                  type="button"
-                  onClick={selectAll}
-                  className="font-semibold text-indigo-600 hover:underline"
-                >
-                  Select All
-                </button>
-                <span className="text-slate-300">|</span>
-                <button type="button" onClick={deselectAll} className="text-slate-500 hover:underline">
-                  Deselect All
-                </button>
-              </div>
+              <span className="text-[11px] font-semibold text-slate-400">
+                {selectedStatuses.length} / {DASHBOARD_STATUS_ORDER.length}
+              </span>
             </div>
+
+            <label className="mb-2.5 flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs font-semibold text-slate-700">
+              <input
+                ref={selectAllRef}
+                type="checkbox"
+                checked={allSelected}
+                onChange={toggleAll}
+                aria-label="Select all statuses"
+                className="rounded text-indigo-600 focus:ring-indigo-500"
+              />
+              <span>Select all statuses</span>
+            </label>
 
             <p className="mb-2.5 flex items-center gap-1.5 rounded-lg border border-amber-100 bg-amber-50 p-2 text-[11px] font-medium text-amber-600">
               <Info className="h-3.5 w-3.5 flex-shrink-0" />
-              <span>All options are unselected by default so you can choose specifically.</span>
+              <span>
+                All options start unselected. Dashboard counts follow each status&apos;s Period/All
+                scope and the selected date basis.
+              </span>
             </p>
 
             <div className="grid grid-cols-2 gap-2 text-xs">
               {DASHBOARD_STATUS_ORDER.map((status) => {
                 const meta = DASHBOARD_STATUS_META[status];
                 const checked = selectedStatuses.includes(status);
+                const summary = statusSummary[status];
+                const countText =
+                  scope === 'dashboard'
+                    ? summary.mode === 'all'
+                      ? `${summary.total} (All)`
+                      : `${summary.filtered} / ${summary.total}`
+                    : `${taskStatusCounts[status]}`;
                 return (
                   <label
                     key={status}
-                    className={`flex cursor-pointer items-center gap-2 rounded-lg border p-2 transition-colors ${
+                    className={`flex cursor-pointer items-center justify-between gap-2 rounded-lg border p-2 transition-colors ${
                       checked ? 'border-indigo-300 bg-indigo-50/40' : 'border-slate-200 hover:bg-slate-50'
                     } ${status === 'pushed' ? 'col-span-2' : ''}`}
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggleStatus(status)}
-                      className="rounded text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span className="font-medium text-slate-700">{meta.label}</span>
+                    <span className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggleStatus(status)}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="font-medium text-slate-700">{meta.label}</span>
+                    </span>
+                    <span
+                      className="flex-shrink-0 text-[10px] font-semibold tabular-nums text-slate-400"
+                      title={
+                        scope === 'dashboard'
+                          ? `${buttonModeTitle(summary.filtered, summary.total, summary.mode)}`
+                          : `${taskStatusCounts[status]} tasks in the full task set`
+                      }
+                    >
+                      {countText}
+                    </span>
                   </label>
                 );
               })}
@@ -372,7 +495,12 @@ export default function ExportStudioModal({
 
           <div className="text-[11px] text-slate-500">
             {selectedStatuses.length} status{selectedStatuses.length === 1 ? '' : 'es'} selected ·{' '}
-            <strong>{rowCount}</strong> {scope === 'dashboard' ? 'summary rows' : 'task rows'}
+            <strong>{rowCount}</strong> {scope === 'dashboard' ? 'tasks represented' : 'task rows'}
+            {scope === 'dashboard' && (
+              <span className="block text-[10px] text-slate-400">
+                Status summary rows: {selectedSummaryRows.length} · assignee rows: {assignees.length}
+              </span>
+            )}
           </div>
         </div>
 
@@ -396,4 +524,8 @@ export default function ExportStudioModal({
       </div>
     </div>
   );
+}
+
+function buttonModeTitle(filtered: number, total: number, mode: DashboardStatusModes[DashboardStatus]): string {
+  return mode === 'all' ? `${total} all-time tasks` : `${filtered} of ${total} tasks in period`;
 }

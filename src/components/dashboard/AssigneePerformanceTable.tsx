@@ -1,9 +1,17 @@
 import { Check, Clock, XCircle } from 'lucide-react';
-import type { AssigneePerformance, HealthTone } from '../../lib/dashboard';
+import {
+  DASHBOARD_STATUS_META,
+  DASHBOARD_STATUS_ORDER,
+  type AssigneePerformance,
+  type DashboardStatusModes,
+  type HealthTone,
+} from '../../lib/dashboard';
 
 interface AssigneePerformanceTableProps {
   rows: AssigneePerformance[];
-  approximateOverdue: boolean;
+  periodLabel: string;
+  dateBasisLabel: string;
+  statusModes: DashboardStatusModes;
 }
 
 const HEALTH_CLASSES: Record<HealthTone, string> = {
@@ -15,26 +23,31 @@ const HEALTH_CLASSES: Record<HealthTone, string> = {
 
 export default function AssigneePerformanceTable({
   rows,
-  approximateOverdue,
+  periodLabel,
+  dateBasisLabel,
+  statusModes,
 }: AssigneePerformanceTableProps) {
   const totalPushed = rows.reduce((total, row) => total + row.pushed, 0);
   const totalOverdue = rows.reduce((total, row) => total + row.overdue, 0);
   const totalBlocked = rows.reduce((total, row) => total + row.blocked, 0);
+  const allModeLabels = DASHBOARD_STATUS_ORDER.filter(
+    (status) => statusModes[status] === 'all'
+  ).map((status) => DASHBOARD_STATUS_META[status].label);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex flex-col items-start justify-between gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-bold text-slate-900">Daily Report &amp; Assignee Performance</h2>
+            <h2 className="text-base font-bold text-slate-900">Period Report &amp; Assignee Performance</h2>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-              Daily Focus
+              {periodLabel}
             </span>
           </div>
           <p className="mt-1 text-xs text-slate-500">
-            Tasks in <span className="font-semibold text-emerald-700">Pushed/Live</span> count as
-            Delivered. <span className="font-semibold text-amber-700">In Progress</span> &amp;{' '}
-            <span className="font-semibold text-amber-700">To-Do</span> are flagged as Overdue risk.
+            Counts use <span className="font-semibold text-slate-700">{dateBasisLabel}</span> and each
+            status&apos;s Period/All scope. Delivered plus open To-Do / In Progress risk are shown per
+            assignee.
           </p>
         </div>
 
@@ -73,7 +86,7 @@ export default function AssigneePerformanceTable({
                     </div>
                     <div className="min-w-0">
                       <div className="truncate font-bold text-slate-800">{row.name}</div>
-                      <div className="text-[10px] text-slate-400">{row.total} active tasks</div>
+                      <div className="text-[10px] text-slate-400">{row.total} tasks in scope</div>
                     </div>
                   </div>
                 </td>
@@ -82,11 +95,7 @@ export default function AssigneePerformanceTable({
                 </td>
                 <td
                   className="bg-amber-50/30 px-3 py-3 text-center font-bold text-amber-600"
-                  title={
-                    row.overdueApproximate
-                      ? 'Snapshot days do not store due dates; this is the open In Progress + To-Do count.'
-                      : `${row.overduePastDue} past due · ${row.overdue} open in In Progress + To-Do`
-                  }
+                  title={`${row.overduePastDue} past due · ${row.overdue} open in In Progress + To-Do`}
                 >
                   {row.overdue}
                   {row.overduePastDue > 0 && (
@@ -112,7 +121,7 @@ export default function AssigneePerformanceTable({
             {rows.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
-                  No assignee activity on this board.
+                  No assignee activity in the selected period.
                 </td>
               </tr>
             )}
@@ -135,10 +144,10 @@ export default function AssigneePerformanceTable({
         </div>
       </div>
 
-      {(approximateOverdue || rows.some((row) => row.overdueApproximate)) && (
+      {allModeLabels.length > 0 && (
         <p className="border-t border-slate-100 px-4 py-2 text-[10px] text-slate-400">
-          ≈ Overdue on snapshot days uses the open In Progress + To-Do count because due dates are
-          not stored in historical snapshots.
+          Using All-time scope for: <strong className="font-semibold text-slate-500">{allModeLabels.join(', ')}</strong>.
+          The remaining statuses follow {periodLabel}.
         </p>
       )}
     </section>

@@ -4,16 +4,22 @@ import type { Bucket, StatusMapping, StatusOverrides } from '../lib/status';
 import { DEFAULT_LIST_MAPPING } from '../lib/status';
 import type { SnapshotStore } from '../lib/snapshots';
 import { getBoardForDate } from '../lib/snapshots';
-import type { PeriodKey } from '../lib/dates';
-import { endOfDayMs, fileTimestamp, formatPeriodLabel, getPeriodRange, parseDate } from '../lib/dates';
+import type { PeriodKey, WeekStart } from '../lib/dates';
+import { fileTimestamp, formatPeriodLabel, getPeriodRange } from '../lib/dates';
 import {
+  DASHBOARD_DATE_BASIS_LABEL,
   DASHBOARD_STATUS_META,
   DASHBOARD_STATUS_ORDER,
   buildBlockedItems,
   computeAssigneePerformance,
-  dashboardCountsFromBoard,
-  getDashboardStatus,
+  effectiveDashboardCounts,
+  filterTasksForStatus,
+  isTaskInDashboardRange,
+  summarizeDashboardStatuses,
+  type DashboardDateBasis,
   type DashboardStatus,
+  type DashboardStatusMode,
+  type DashboardStatusModes,
 } from '../lib/dashboard';
 import {
   buildStandup,
@@ -51,8 +57,15 @@ interface DashboardPageProps {
   period: PeriodKey;
   customStart: string;
   customEnd: string;
+  dateBasis: DashboardDateBasis;
+  weekStart: WeekStart;
+  statusModes: DashboardStatusModes;
   onSelectPeriod: (period: PeriodKey) => void;
   onCustomRangeChange: (start: string, end: string) => void;
+  onDateBasisChange: (basis: DashboardDateBasis) => void;
+  onWeekStartChange: (weekStart: WeekStart) => void;
+  onStatusModeChange: (status: DashboardStatus, mode: DashboardStatusMode) => void;
+  onSetAllStatusModes: (mode: DashboardStatusMode) => void;
   onOpenTasks: () => void;
 }
 
@@ -103,8 +116,15 @@ export default function DashboardPage({
   period,
   customStart,
   customEnd,
+  dateBasis,
+  weekStart,
+  statusModes,
   onSelectPeriod,
   onCustomRangeChange,
+  onDateBasisChange,
+  onWeekStartChange,
+  onStatusModeChange,
+  onSetAllStatusModes,
   onOpenTasks,
 }: DashboardPageProps) {
   const [mappingOpen, setMappingOpen] = useState(false);
@@ -114,39 +134,71 @@ export default function DashboardPage({
   const [drilldown, setDrilldown] = useState<{ title: string; tasks: EnrichedTaskData[] } | null>(null);
 
   const range = useMemo(
-    () => getPeriodRange(period, customStart, customEnd),
-    [period, customStart, customEnd]
+    () => getPeriodRange(period, customStart, customEnd, weekStart),
+    [period, customStart, customEnd, weekStart]
   );
   const boardDate = range.end;
-  const periodLabel = formatPeriodLabel(period, range);
+  const periodLabel = formatPeriodLabel(period, range, weekStart);
 
   const board = useMemo(
     () => getBoardForDate(boardDate, tasks, mapping, overrides, snapshots),
     [boardDate, tasks, mapping, overrides, snapshots]
   );
 
-  const canDrill = board.source !== 'snapshot';
-  const boardTasks = useMemo(() => {
-    if (board.source === 'snapshot') return null;
-    if (board.source !== 'approximate') return tasks;
-    const end = endOfDayMs(boardDate);
-    return tasks.filter((task) => {
-      const created = parseDate(task.created_at);
-      return created !== null && created.getTime() <= end;
-    });
-  }, [board.source, boardDate, tasks]);
+  // Historical snapshots keep powering the detailed day-by-day breakdown.
+  // The top dashboard filters current task status by the selected date basis.
+  const dashboardTasks = tasks;
+  const canDrill = dashboardTasks.length > 0;
 
-  const counts = useMemo(() => dashboardCountsFromBoard(board), [board]);
+  const statusSummary = useMemo(
+    () =>
+      summarizeDashboardStatuses(
+        dashboardTasks,
+        mapping,
+        overrides,
+        range,
+        dateBasis,
+        statusModes
+      ),
+    [dashboardTasks, mapping, overrides, range, dateBasis, statusModes]
+  );
+
+  const counts = useMemo(() => effectiveDashboardCounts(statusSummary), [statusSummary]);
 
   const assigneeRows = useMemo(
-    () => computeAssigneePerformance(board, boardTasks, mapping, overrides),
-    [board, boardTasks, mapping, overrides]
+    () =>
+      computeAssigneePerformance(
+        dashboardTasks,
+        mapping,
+        overrides,
+        range,
+        dateBasis,
+        statusModes
+      ),
+    [dashboardTasks, mapping, overrides, range, dateBasis, statusModes]
   );
 
-  const blockedItems = useMemo(
-    () => buildBlockedItems(boardTasks, transitions, mapping, overrides),
-    [boardTasks, transitions, mapping, overrides]
+  const blockedAllItems = useMemo(
+    () => buildBlockedItems(dashboardTasks, transitions, mapping, overrides),
+    [dashboardTasks, transitions, mapping, overrides]
   );
+
+  const blockedPeriodItems = useMemo(
+    () =>
+      blockedAllItems.filter((item) =>
+        isTaskInDashboardRange(item.task, dateBasis, range)
+      ),
+    [blockedAllItems, dateBasis, range]
+  );
+
+  const blockedVisibleItems =
+    statusModes.blocked === 'all' ? blockedAllItems : blockedPeriodItems;
+  const blockedOutsideItems =
+    statusModes.blocked === 'all'
+      ? []
+      : blockedAllItems.filter(
+          (item) => !isTaskInDashboardRange(item.task, dateBasis, range)
+        );
 
   const standup = useMemo(
     () => buildStandup(tasks, mapping, overrides, transitions, boardDate, doneLists),
@@ -239,10 +291,20 @@ export default function DashboardPage({
   };
 
   const openStatusDrilldown = (status: DashboardStatus) => {
-    if (!canDrill || !boardTasks) return;
+    if (!canDrill) return;
+    const entry = statusSummary[status];
+    const scopeLabel = entry.mode === 'all' ? 'all time' : periodLabel;
     setDrilldown({
-      title: `${DASHBOARD_STATUS_META[status].label} · ${boardDate}`,
-      tasks: boardTasks.filter((task) => getDashboardStatus(task, mapping, overrides) === status),
+      title: `${DASHBOARD_STATUS_META[status].label} · ${scopeLabel} · ${entry.effective} tasks`,
+      tasks: filterTasksForStatus(
+        dashboardTasks,
+        status,
+        mapping,
+        overrides,
+        range,
+        dateBasis,
+        statusModes
+      ),
     });
   };
 
@@ -252,13 +314,23 @@ export default function DashboardPage({
   };
 
   const openAllTestingTasks = () => {
-    if (!boardTasks) {
+    if (!canDrill) {
       onOpenTasks();
       return;
     }
     setDrilldown({
-      title: `Testing · ${boardDate}`,
-      tasks: boardTasks.filter((task) => getDashboardStatus(task, mapping, overrides) === 'testing'),
+      title: `Testing · ${
+        statusModes.testing === 'all' ? 'all testing tasks' : periodLabel
+      }`,
+      tasks: filterTasksForStatus(
+        dashboardTasks,
+        'testing',
+        mapping,
+        overrides,
+        range,
+        dateBasis,
+        statusModes
+      ),
     });
   };
 
@@ -276,53 +348,75 @@ export default function DashboardPage({
         boardDate={boardDate}
         source={board.source}
         capturedAt={board.capturedAt}
+        dateBasis={dateBasis}
+        weekStart={weekStart}
+        statusModes={statusModes}
         onSelectPeriod={onSelectPeriod}
         onCustomRangeChange={onCustomRangeChange}
+        onDateBasisChange={onDateBasisChange}
+        onWeekStartChange={onWeekStartChange}
+        onSetAllStatusModes={onSetAllStatusModes}
         onOpenMapping={() => setMappingOpen(true)}
       />
 
       <main className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
         <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
-          {DASHBOARD_STATUS_ORDER.map((status) => (
-            <KpiCard
-              key={status}
-              status={status}
-              count={counts[status]}
-              onClick={() => openStatusDrilldown(status)}
-              disabled={!canDrill}
-            />
-          ))}
+          {DASHBOARD_STATUS_ORDER.map((status) => {
+            const entry = statusSummary[status];
+            return (
+              <KpiCard
+                key={status}
+                status={status}
+                filtered={entry.filtered}
+                total={entry.total}
+                mode={entry.mode}
+                onModeChange={(mode) => onStatusModeChange(status, mode)}
+                onClick={() => openStatusDrilldown(status)}
+                disabled={!canDrill}
+              />
+            );
+          })}
         </section>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
           <div className="space-y-6 lg:col-span-2">
             <AssigneePerformanceTable
               rows={assigneeRows}
-              approximateOverdue={board.source === 'snapshot'}
+              periodLabel={periodLabel}
+              dateBasisLabel={DASHBOARD_DATE_BASIS_LABEL[dateBasis]}
+              statusModes={statusModes}
             />
             <PipelineChart
               counts={counts}
+              periodLabel={periodLabel}
               onSelect={canDrill ? openStatusDrilldown : undefined}
             />
           </div>
 
           <div className="space-y-6">
             <TestingBoard
-              boardTasks={boardTasks}
+              tasks={dashboardTasks}
               transitions={transitions}
               mapping={mapping}
               overrides={overrides}
               boardDate={boardDate}
-              boardCount={board.byBucket.testing}
+              range={range}
+              dateBasis={dateBasis}
+              mode={statusModes.testing}
+              weekStart={weekStart}
+              dashboardTotal={statusSummary.testing.total}
+              periodLabel={periodLabel}
               onViewAll={openAllTestingTasks}
               onDrilldown={openTaskDrilldown}
             />
 
             <BlockedPanel
-              items={blockedItems}
+              items={blockedVisibleItems}
+              outsideItems={blockedOutsideItems}
+              total={statusSummary.blocked.total}
+              mode={statusModes.blocked}
+              periodLabel={periodLabel}
               boardDate={boardDate}
-              boardSource={board.source}
-              boardCount={board.byBucket.blocked}
               onDrilldown={handleBlockedDrilldown}
             />
           </div>
@@ -337,7 +431,7 @@ export default function DashboardPage({
           range={range}
           board={board}
           boardDate={boardDate}
-          canDrill={canDrill}
+          canDrill={board.source !== 'snapshot'}
           onDrilldown={openTaskDrilldown}
           standup={standup}
           standupPerson={effectiveStandupPerson}

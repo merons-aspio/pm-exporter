@@ -3,7 +3,16 @@ import { CalendarDays, ChevronDown, Settings2 } from 'lucide-react';
 import { SourceBadge } from '../ui';
 import { useToast } from '../ToastProvider';
 import type { BoardSource } from '../../lib/snapshots';
-import type { PeriodKey } from '../../lib/dates';
+import type { PeriodKey, WeekStart } from '../../lib/dates';
+import { WEEK_START_OPTIONS } from '../../lib/dates';
+import {
+  DASHBOARD_DATE_BASIS_LABEL,
+  DASHBOARD_DATE_BASIS_OPTIONS,
+  DASHBOARD_STATUS_ORDER,
+  type DashboardDateBasis,
+  type DashboardStatusMode,
+  type DashboardStatusModes,
+} from '../../lib/dashboard';
 
 interface DateToolbarProps {
   period: PeriodKey;
@@ -13,8 +22,14 @@ interface DateToolbarProps {
   boardDate: string;
   source: BoardSource;
   capturedAt?: string;
+  dateBasis: DashboardDateBasis;
+  weekStart: WeekStart;
+  statusModes: DashboardStatusModes;
   onSelectPeriod: (period: PeriodKey) => void;
   onCustomRangeChange: (start: string, end: string) => void;
+  onDateBasisChange: (basis: DashboardDateBasis) => void;
+  onWeekStartChange: (weekStart: WeekStart) => void;
+  onSetAllStatusModes: (mode: DashboardStatusMode) => void;
   onOpenMapping: () => void;
 }
 
@@ -34,6 +49,10 @@ const PRESET_TOAST: Record<Exclude<PeriodKey, 'custom'>, string> = {
   thisMonth: 'This Month',
 };
 
+const WEEK_START_LABEL = Object.fromEntries(
+  WEEK_START_OPTIONS.map((option) => [option.value, option.label])
+) as Record<WeekStart, string>;
+
 export default function DateToolbar({
   period,
   customStart,
@@ -42,8 +61,14 @@ export default function DateToolbar({
   boardDate,
   source,
   capturedAt,
+  dateBasis,
+  weekStart,
+  statusModes,
   onSelectPeriod,
   onCustomRangeChange,
+  onDateBasisChange,
+  onWeekStartChange,
+  onSetAllStatusModes,
   onOpenMapping,
 }: DateToolbarProps) {
   const toast = useToast();
@@ -76,6 +101,24 @@ export default function DateToolbar({
     onSelectPeriod('custom');
     setCustomOpen(false);
     toast.push('Custom date filter applied.');
+  };
+
+  const allPeriod = DASHBOARD_STATUS_ORDER.every((status) => statusModes[status] === 'period');
+  const allAll = DASHBOARD_STATUS_ORDER.every((status) => statusModes[status] === 'all');
+
+  const changeBasis = (next: DashboardDateBasis) => {
+    onDateBasisChange(next);
+    toast.push(`Dashboard counts now use: ${DASHBOARD_DATE_BASIS_LABEL[next]}`);
+  };
+
+  const changeWeekStart = (next: WeekStart) => {
+    onWeekStartChange(next);
+    toast.push(`Week now starts on ${WEEK_START_LABEL[next]}.`);
+  };
+
+  const setAllModes = (mode: DashboardStatusMode) => {
+    onSetAllStatusModes(mode);
+    toast.push(`All status cards set to ${mode === 'all' ? 'All time' : 'selected period'}.`);
   };
 
   return (
@@ -179,11 +222,84 @@ export default function DateToolbar({
         </div>
       </div>
 
+      <div className="mx-auto mt-3 flex w-full max-w-7xl flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-100 px-4 pt-3 text-xs sm:px-6 lg:px-8">
+        <label className="flex items-center gap-1.5 font-medium text-slate-500">
+          <span className="font-semibold uppercase tracking-wide text-slate-400">Count by</span>
+          <select
+            value={dateBasis}
+            onChange={(event) => changeBasis(event.target.value as DashboardDateBasis)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="Dashboard count date basis"
+          >
+            {DASHBOARD_DATE_BASIS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex items-center gap-1.5 font-medium text-slate-500">
+          <span className="font-semibold uppercase tracking-wide text-slate-400">Week starts</span>
+          <select
+            value={weekStart}
+            onChange={(event) => changeWeekStart(event.target.value as WeekStart)}
+            className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-500"
+            aria-label="Week start day"
+          >
+            {WEEK_START_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold uppercase tracking-wide text-slate-400">All statuses</span>
+          <div className="flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setAllModes('period')}
+              aria-label="Set all statuses to Period"
+              aria-pressed={allPeriod}
+              className={`rounded-md px-2 py-1 font-semibold transition-all ${
+                allPeriod ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              Period
+            </button>
+            <button
+              type="button"
+              onClick={() => setAllModes('all')}
+              aria-label="Set all statuses to All time"
+              aria-pressed={allAll}
+              className={`rounded-md px-2 py-1 font-semibold transition-all ${
+                allAll ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              All
+            </button>
+          </div>
+          {!allPeriod && !allAll && (
+            <span className="text-[10px] font-semibold uppercase text-amber-600">Mixed</span>
+          )}
+        </div>
+
+        <span className="text-[11px] text-slate-400">
+          {DASHBOARD_DATE_BASIS_LABEL[dateBasis]} filters the dashboard
+          {dateBasis === 'updated' ? ' (falls back to Created date)' : ''}. Each card can switch
+          between the period and All.
+        </span>
+      </div>
+
       <div className="mx-auto mt-2 w-full max-w-7xl px-4 text-[11px] text-slate-400 sm:px-6 lg:px-8">
         Board as of {boardDate}
         {source === 'approximate' &&
           ' · reconstructed from tasks created by this date using their current list/status.'}
         {source === 'live' && ' · live from the current board.'}
+        {source === 'snapshot' &&
+          ' · historical aggregates remain in Detailed breakdown; dashboard status counts use current tasks and the selected date basis.'}
       </div>
     </section>
   );

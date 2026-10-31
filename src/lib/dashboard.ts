@@ -1,7 +1,6 @@
 import type { EnrichedTaskData } from '../services/hubstaff';
 import { getEffectiveBucket, getListBucketByName } from './status';
 import type { Bucket, StatusMapping, StatusOverrides } from './status';
-import type { BoardState } from './snapshots';
 import {
   daysOverdue,
   endOfDayMs,
@@ -10,7 +9,7 @@ import {
   parseDate,
   startOfDayMs,
 } from './dates';
-import type { TestingTimeframe } from './dates';
+import type { TestingTimeframe, WeekStart } from './dates';
 import type { ListTransition } from './transitions';
 
 export type DashboardStatus =
@@ -31,6 +30,55 @@ export const DASHBOARD_STATUS_ORDER: DashboardStatus[] = [
   'blocked',
   'pushed',
 ];
+
+export type DashboardDateBasis = 'updated' | 'created' | 'due';
+export type DashboardStatusMode = 'period' | 'all';
+export type DashboardStatusModes = Record<DashboardStatus, DashboardStatusMode>;
+export type DashboardPeriodRange = { start: string; end: string };
+
+export const DASHBOARD_DATE_BASIS_LABEL: Record<DashboardDateBasis, string> = {
+  updated: 'Updated date',
+  created: 'Created date',
+  due: 'Due date',
+};
+
+export const DASHBOARD_DATE_BASIS_OPTIONS: Array<{ value: DashboardDateBasis; label: string }> = [
+  { value: 'updated', label: DASHBOARD_DATE_BASIS_LABEL.updated },
+  { value: 'created', label: DASHBOARD_DATE_BASIS_LABEL.created },
+  { value: 'due', label: DASHBOARD_DATE_BASIS_LABEL.due },
+];
+
+const DASHBOARD_SETTINGS_KEY = 'hubstaff_dashboard_filters_v1';
+
+export interface DashboardFilterSettings {
+  dateBasis: DashboardDateBasis;
+  weekStart: WeekStart;
+  statusModes: DashboardStatusModes;
+}
+
+export function emptyStatusModes(mode: DashboardStatusMode = 'period'): DashboardStatusModes {
+  return {
+    icebox: mode,
+    current_sprint: mode,
+    todo: mode,
+    in_progress: mode,
+    testing: mode,
+    blocked: mode,
+    pushed: mode,
+  };
+}
+
+export function isDashboardDateBasis(value: string): value is DashboardDateBasis {
+  return value === 'updated' || value === 'created' || value === 'due';
+}
+
+export function isDashboardStatusMode(value: string): value is DashboardStatusMode {
+  return value === 'period' || value === 'all';
+}
+
+export function isWeekStart(value: string): value is WeekStart {
+  return value === 'monday' || value === 'friday' || value === 'saturday';
+}
 
 export interface DashboardStatusMeta {
   label: string;
@@ -164,18 +212,6 @@ export function countDashboardStatuses(
   return counts;
 }
 
-export function dashboardCountsFromBoard(board: BoardState): Record<DashboardStatus, number> {
-  return {
-    icebox: board.byBucket.backlog,
-    current_sprint: board.byBucket.current_sprint,
-    todo: board.byBucket.todo,
-    in_progress: board.byBucket.in_progress,
-    testing: board.byBucket.testing,
-    blocked: board.byBucket.blocked,
-    pushed: board.byBucket.pushed + board.byBucket.done,
-  };
-}
-
 export function sumDashboardCounts(counts: Record<DashboardStatus, number>): number {
   return DASHBOARD_STATUS_ORDER.reduce((total, status) => total + counts[status], 0);
 }
@@ -194,6 +230,130 @@ export function dashboardStatusRows(
     label: DASHBOARD_STATUS_META[status].label,
     count: counts[status],
   }));
+}
+
+function usableDate(value: string | null | undefined): string | null {
+  return value && parseDate(value) ? value : null;
+}
+
+/**
+ * The date used by the dashboard for a task. Updated-date filtering falls back
+ * to Created date when Hubstaff has no usable updated timestamp.
+ */
+export function getDashboardTaskDate(
+  task: EnrichedTaskData,
+  basis: DashboardDateBasis
+): string | null {
+  switch (basis) {
+    case 'updated':
+      return usableDate(task.updated_at) ?? usableDate(task.created_at);
+    case 'created':
+      return usableDate(task.created_at);
+    case 'due':
+      return usableDate(task.due_date) ?? usableDate(task.due_on) ?? usableDate(task.due_at);
+  }
+}
+
+export function isTaskInDashboardRange(
+  task: EnrichedTaskData,
+  basis: DashboardDateBasis,
+  range: DashboardPeriodRange
+): boolean {
+  const value = getDashboardTaskDate(task, basis);
+  if (!value) return false;
+  const time = parseDate(value)?.getTime();
+  if (time === undefined) return false;
+  return time >= startOfDayMs(range.start) && time <= endOfDayMs(range.end);
+}
+
+export interface DashboardStatusSummaryEntry {
+  status: DashboardStatus;
+  filtered: number;
+  total: number;
+  effective: number;
+  mode: DashboardStatusMode;
+}
+
+export type DashboardStatusSummary = Record<DashboardStatus, DashboardStatusSummaryEntry>;
+
+export function summarizeDashboardStatuses(
+  tasks: EnrichedTaskData[],
+  mapping: StatusMapping,
+  overrides: StatusOverrides,
+  range: DashboardPeriodRange,
+  basis: DashboardDateBasis,
+  modes: DashboardStatusModes
+): DashboardStatusSummary {
+  const summary = {} as DashboardStatusSummary;
+  DASHBOARD_STATUS_ORDER.forEach((status) => {
+    summary[status] = {
+      status,
+      filtered: 0,
+      total: 0,
+      effective: 0,
+      mode: modes[status],
+    };
+  });
+
+  tasks.forEach((task) => {
+    const status = getDashboardStatus(task, mapping, overrides);
+    const entry = summary[status];
+    entry.total += 1;
+    if (isTaskInDashboardRange(task, basis, range)) entry.filtered += 1;
+  });
+
+  DASHBOARD_STATUS_ORDER.forEach((status) => {
+    const entry = summary[status];
+    entry.effective = entry.mode === 'all' ? entry.total : entry.filtered;
+  });
+
+  return summary;
+}
+
+export function effectiveDashboardCounts(
+  summary: DashboardStatusSummary
+): Record<DashboardStatus, number> {
+  const counts = emptyDashboardCounts();
+  DASHBOARD_STATUS_ORDER.forEach((status) => {
+    counts[status] = summary[status].effective;
+  });
+  return counts;
+}
+
+export function totalDashboardCounts(
+  summary: DashboardStatusSummary
+): Record<DashboardStatus, number> {
+  const counts = emptyDashboardCounts();
+  DASHBOARD_STATUS_ORDER.forEach((status) => {
+    counts[status] = summary[status].total;
+  });
+  return counts;
+}
+
+function summaryForTask(
+  task: EnrichedTaskData,
+  status: DashboardStatus,
+  range: DashboardPeriodRange,
+  basis: DashboardDateBasis,
+  modes: DashboardStatusModes
+): boolean {
+  return modes[status] === 'all' || isTaskInDashboardRange(task, basis, range);
+}
+
+export function filterTasksForStatus(
+  tasks: EnrichedTaskData[],
+  status: DashboardStatus,
+  mapping: StatusMapping,
+  overrides: StatusOverrides,
+  range: DashboardPeriodRange,
+  basis: DashboardDateBasis,
+  modes: DashboardStatusModes
+): EnrichedTaskData[] {
+  return tasks.filter(
+    (task) =>
+      getDashboardStatus(task, mapping, overrides) === status &&
+      summaryForTask(task, status, range, basis, modes)
+  );
 }
 
 export type HealthKey = 'action' | 'high' | 'healthy' | 'idle';
@@ -252,78 +412,69 @@ function tasksByAssignee(tasks: EnrichedTaskData[]): Map<string, EnrichedTaskDat
 }
 
 /**
- * Assignee rows are built from the stored board counts so snapshot days work.
- * Overdue needs task-level due dates: for live/approximate boards we count open
- * In Progress + To-Do tasks and track how many are genuinely past due. Old
- * snapshots do not store due dates, so they fall back to the open count and are
- * flagged as approximate.
+ * Assignee counts use the same period, date basis and per-status Period/All
+ * modes as the KPI cards. Overdue remains the open To-Do + In Progress count,
+ * with a past-due subset shown when due dates are available.
  */
 export function computeAssigneePerformance(
-  board: BoardState,
-  boardTasks: EnrichedTaskData[] | null,
+  tasks: EnrichedTaskData[],
   mapping: StatusMapping,
-  overrides: StatusOverrides
+  overrides: StatusOverrides,
+  range: DashboardPeriodRange,
+  basis: DashboardDateBasis,
+  modes: DashboardStatusModes
 ): AssigneePerformance[] {
-  const tasksLookup = boardTasks ? tasksByAssignee(boardTasks) : null;
   const rows: AssigneePerformance[] = [];
 
-  Object.entries(board.byAssigneeBucket).forEach(([name, counts]) => {
-    const pushed = counts.pushed + counts.done;
-    const blocked = counts.blocked;
-    const testing = counts.testing;
-    const inProgress = counts.in_progress;
-    const todo = counts.todo;
-    const sprint = counts.current_sprint;
-    const total =
-      counts.backlog +
-      counts.current_sprint +
-      counts.todo +
-      counts.in_progress +
-      counts.testing +
-      counts.blocked +
-      counts.pushed +
-      counts.done;
-
-    const open = todo + inProgress;
+  tasksByAssignee(tasks).forEach((personTasks, name) => {
+    const counts = emptyDashboardCounts();
     let overduePastDue = 0;
 
-    if (tasksLookup) {
-      const personTasks = tasksLookup.get(name) ?? [];
-      personTasks.forEach((task) => {
-        const status = getDashboardStatus(task, mapping, overrides);
-        if (status !== 'todo' && status !== 'in_progress') return;
-        if (!task.done && daysOverdue(task.due_date, board.date) > 0) overduePastDue += 1;
-      });
-    }
+    personTasks.forEach((task) => {
+      const status = getDashboardStatus(task, mapping, overrides);
+      if (!summaryForTask(task, status, range, basis, modes)) return;
 
-    const health = healthFor(blocked, open, total);
+      counts[status] += 1;
+
+      if (
+        (status === 'todo' || status === 'in_progress') &&
+        !task.done &&
+        daysOverdue(task.due_date, range.end) > 0
+      ) {
+        overduePastDue += 1;
+      }
+    });
+
+    const total = sumDashboardCounts(counts);
+    if (total === 0) return;
+
+    const open = counts.todo + counts.in_progress;
+    const health = healthFor(counts.blocked, open, total);
 
     rows.push({
       name,
       initials: initialsFor(name),
-      pushed,
+      pushed: counts.pushed,
       overdue: open,
       overduePastDue,
-      overdueApproximate: !tasksLookup,
-      blocked,
-      testing,
-      inProgress,
-      todo,
-      sprint,
+      overdueApproximate: false,
+      blocked: counts.blocked,
+      testing: counts.testing,
+      inProgress: counts.in_progress,
+      todo: counts.todo,
+      sprint: counts.current_sprint,
       total,
       ...health,
     });
   });
 
-  return rows
-    .filter((row) => row.total > 0)
-    .sort(
-      (a, b) =>
-        b.blocked - a.blocked ||
-        b.overdue - a.overdue ||
-        b.pushed - a.pushed ||
-        a.name.localeCompare(b.name)
-    );
+  return rows.sort(
+    (a, b) =>
+      b.blocked - a.blocked ||
+      b.overdue - a.overdue ||
+      b.pushed - a.pushed ||
+      a.name.localeCompare(b.name)
+  );
 }
 
 export interface TestingQueueItem {
@@ -369,20 +520,28 @@ function latestTransitionInto(
   return latest;
 }
 
+export interface TestingQueueOptions {
+  range: DashboardPeriodRange;
+  basis: DashboardDateBasis;
+  mode: DashboardStatusMode;
+  weekStart: WeekStart;
+  referenceDate: string;
+}
+
 /**
- * Currently-Testing tasks that entered Testing within the selected window.
- * Hubstaff does not expose a testing timestamp, so observed list transitions
- * are the reliable source. If none exist for a task, `updated_at` is used and
- * the row is marked approximate.
+ * Currently-Testing tasks that pass the dashboard period filter and entered
+ * Testing within the selected Daily/Weekly/Monthly QA window. The outer
+ * dashboard filter applies first; the QA window is a second, more precise one.
  */
 export function buildTestingQueue(
   boardTasks: EnrichedTaskData[] | null,
   transitions: ListTransition[],
   mapping: StatusMapping,
   overrides: StatusOverrides,
-  timeframe: TestingTimeframe
+  timeframe: TestingTimeframe,
+  options: TestingQueueOptions
 ): TestingQueue {
-  const range = getTestingRange(timeframe);
+  const range = getTestingRange(timeframe, options.weekStart, options.referenceDate);
 
   if (!boardTasks) {
     return { items: [], label: range.label, available: false, approximate: false };
@@ -395,9 +554,15 @@ export function buildTestingQueue(
 
   boardTasks.forEach((task) => {
     if (getEffectiveBucket(task, mapping, overrides) !== 'testing') return;
+    if (
+      options.mode === 'period' &&
+      !isTaskInDashboardRange(task, options.basis, options.range)
+    ) {
+      return;
+    }
 
     const transition = latestTransitionInto(task.id, transitionMap, mapping, 'testing');
-    const enteredAt = transition?.at ?? task.updated_at;
+    const enteredAt = transition?.at ?? task.updated_at ?? task.created_at;
     if (!enteredAt || !isInRange(enteredAt, start, end)) return;
 
     items.push({
@@ -484,4 +649,45 @@ export function formatDurationSince(value: string, referenceKey: string): string
 
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? '' : 's'}`;
+}
+
+export function loadDashboardFilterSettings(): DashboardFilterSettings {
+  const defaults: DashboardFilterSettings = {
+    dateBasis: 'updated',
+    weekStart: 'monday',
+    statusModes: emptyStatusModes('period'),
+  };
+
+  try {
+    const raw = localStorage.getItem(DASHBOARD_SETTINGS_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw) as Partial<DashboardFilterSettings> | null;
+    if (!parsed || typeof parsed !== 'object') return defaults;
+
+    const dateBasis = isDashboardDateBasis(String(parsed.dateBasis))
+      ? (parsed.dateBasis as DashboardDateBasis)
+      : defaults.dateBasis;
+    const weekStart = isWeekStart(String(parsed.weekStart))
+      ? (parsed.weekStart as WeekStart)
+      : defaults.weekStart;
+    const statusModes = { ...defaults.statusModes };
+    const rawModes = parsed.statusModes as Partial<DashboardStatusModes> | undefined;
+
+    DASHBOARD_STATUS_ORDER.forEach((status) => {
+      const value = String(rawModes?.[status] ?? '');
+      if (isDashboardStatusMode(value)) statusModes[status] = value;
+    });
+
+    return { dateBasis, weekStart, statusModes };
+  } catch {
+    return defaults;
+  }
+}
+
+export function saveDashboardFilterSettings(settings: DashboardFilterSettings): void {
+  try {
+    localStorage.setItem(DASHBOARD_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // Storage can be unavailable; the in-memory choices still work.
+  }
 }

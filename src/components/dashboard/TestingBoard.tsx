@@ -3,17 +3,29 @@ import { ArrowRight, FlaskConical } from 'lucide-react';
 import type { EnrichedTaskData } from '../../services/hubstaff';
 import type { StatusMapping, StatusOverrides } from '../../lib/status';
 import type { ListTransition } from '../../lib/transitions';
-import type { TestingTimeframe } from '../../lib/dates';
-import { buildTestingQueue, formatDurationSince } from '../../lib/dashboard';
+import type { TestingTimeframe, WeekStart } from '../../lib/dates';
+import {
+  DASHBOARD_DATE_BASIS_LABEL,
+  buildTestingQueue,
+  formatDurationSince,
+  type DashboardDateBasis,
+  type DashboardPeriodRange,
+  type DashboardStatusMode,
+} from '../../lib/dashboard';
 import { useToast } from '../ToastProvider';
 
 interface TestingBoardProps {
-  boardTasks: EnrichedTaskData[] | null;
+  tasks: EnrichedTaskData[] | null;
   transitions: ListTransition[];
   mapping: StatusMapping;
   overrides: StatusOverrides;
   boardDate: string;
-  boardCount: number;
+  range: DashboardPeriodRange;
+  dateBasis: DashboardDateBasis;
+  mode: DashboardStatusMode;
+  weekStart: WeekStart;
+  dashboardTotal: number;
+  periodLabel: string;
   onViewAll: () => void;
   onDrilldown: (title: string, tasks: EnrichedTaskData[]) => void;
 }
@@ -25,12 +37,17 @@ const TIMEFRAMES: Array<{ value: TestingTimeframe; label: string }> = [
 ];
 
 export default function TestingBoard({
-  boardTasks,
+  tasks,
   transitions,
   mapping,
   overrides,
   boardDate,
-  boardCount,
+  range,
+  dateBasis,
+  mode,
+  weekStart,
+  dashboardTotal,
+  periodLabel,
   onViewAll,
   onDrilldown,
 }: TestingBoardProps) {
@@ -38,16 +55,23 @@ export default function TestingBoard({
   const [timeframe, setTimeframe] = useState<TestingTimeframe>('weekly');
 
   const queue = useMemo(
-    () => buildTestingQueue(boardTasks, transitions, mapping, overrides, timeframe),
-    [boardTasks, transitions, mapping, overrides, timeframe]
+    () =>
+      buildTestingQueue(tasks, transitions, mapping, overrides, timeframe, {
+        range,
+        basis: dateBasis,
+        mode,
+        weekStart,
+        referenceDate: boardDate,
+      }),
+    [tasks, transitions, mapping, overrides, timeframe, range, dateBasis, mode, weekStart, boardDate]
   );
 
-  const count = queue.available ? queue.items.length : boardCount;
-  const countLabel = queue.available ? 'In Testing' : 'Testing on board';
+  const count = queue.available ? queue.items.length : dashboardTotal;
+  const countLabel = queue.available ? 'In QA queue' : 'Testing tasks';
 
   const changeTimeframe = (next: TestingTimeframe) => {
     setTimeframe(next);
-    toast.push(`Testing Board scope updated to: ${next.toUpperCase()}`);
+    toast.push(`Testing Board QA window updated to: ${next.toUpperCase()}`);
   };
 
   return (
@@ -64,7 +88,7 @@ export default function TestingBoard({
         </div>
 
         <div className="mt-2 flex items-center justify-between rounded-lg border border-purple-700/50 bg-purple-950/60 p-1.5">
-          <span className="pl-1 text-[11px] font-medium text-purple-200">Scope:</span>
+          <span className="pl-1 text-[11px] font-medium text-purple-200">QA window:</span>
           <div className="flex gap-1 text-[11px]">
             {TIMEFRAMES.map((option) => (
               <button
@@ -85,22 +109,28 @@ export default function TestingBoard({
       </div>
 
       <div className="space-y-3 p-4">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-2 text-xs text-slate-500">
+        <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2 text-xs text-slate-500">
           <span className="font-semibold text-slate-700">
             {countLabel} (<span className="text-purple-700">{count}</span>)
           </span>
-          <span className="text-[11px] font-medium text-purple-700">{queue.label}</span>
+          <span className="text-right text-[11px] font-medium text-purple-700">{queue.label}</span>
         </div>
+
+        <p className="rounded-lg bg-purple-50/70 px-2.5 py-1.5 text-[10px] text-purple-700">
+          Dashboard filter: <strong>{mode === 'all' ? 'All testing tasks' : periodLabel}</strong>
+          {mode === 'period' ? ` · ${DASHBOARD_DATE_BASIS_LABEL[dateBasis]}` : ''} · QA window is
+          applied inside that scope.
+        </p>
 
         {!queue.available ? (
           <div className="rounded-xl border border-purple-100 bg-purple-50/40 p-3 text-xs text-slate-500">
-            Task-level testing detail is not stored for past snapshots. This board has{' '}
-            <strong className="text-purple-700">{boardCount}</strong> testing task
-            {boardCount === 1 ? '' : 's'}.
+            Task-level testing detail is not available for this scope. The dashboard has{' '}
+            <strong className="text-purple-700">{dashboardTotal}</strong> testing task
+            {dashboardTotal === 1 ? '' : 's'}.
           </div>
         ) : queue.items.length === 0 ? (
           <div className="rounded-xl border border-slate-100 bg-slate-50 p-3 text-xs text-slate-400">
-            No tasks entered testing in this window.
+            No tasks entered testing in this QA window.
           </div>
         ) : (
           <div className="max-h-64 space-y-2.5 overflow-y-auto pr-1">
@@ -108,7 +138,7 @@ export default function TestingBoard({
               <button
                 key={item.task.id}
                 type="button"
-                onClick={() => onDrilldown(`Testing · ${timeframe}`, [item.task])}
+                onClick={() => onDrilldown(`Testing · ${queue.label}`, [item.task])}
                 className="flex w-full items-center justify-between gap-2 rounded-xl border border-purple-100 bg-purple-50/30 p-2.5 text-left text-xs transition-all hover:bg-purple-50"
               >
                 <div className="min-w-0">

@@ -3,19 +3,22 @@ import { Download, Kanban, RefreshCw } from 'lucide-react';
 import { useTasks } from './hooks/useTasks';
 import { useStatusSettings } from './hooks/useStatusSettings';
 import { useToast } from './components/ToastProvider';
-import { captureSnapshot, getBoardForDate, loadSnapshots } from './lib/snapshots';
+import { captureSnapshot, loadSnapshots } from './lib/snapshots';
 import type { SnapshotStore } from './lib/snapshots';
 import { loadTransitions, recordListTransitions } from './lib/transitions';
 import type { ListTransition } from './lib/transitions';
+import { formatDateTime, formatPeriodLabel, getPeriodRange, todayKey } from './lib/dates';
+import type { PeriodKey, WeekStart } from './lib/dates';
 import {
-  endOfDayMs,
-  formatDateTime,
-  formatPeriodLabel,
-  getPeriodRange,
-  parseDate,
-  todayKey,
-} from './lib/dates';
-import type { PeriodKey } from './lib/dates';
+  emptyStatusModes,
+  loadDashboardFilterSettings,
+  saveDashboardFilterSettings,
+} from './lib/dashboard';
+import type {
+  DashboardDateBasis,
+  DashboardStatus,
+  DashboardStatusMode,
+} from './lib/dashboard';
 import TasksPage from './pages/TasksPage';
 import DashboardPage from './pages/DashboardPage';
 import LoginPage from './pages/LoginPage';
@@ -50,9 +53,12 @@ export default function App() {
   const [period, setPeriod] = useState<PeriodKey>('thisWeek');
   const [customStart, setCustomStart] = useState(todayKey());
   const [customEnd, setCustomEnd] = useState(todayKey());
+  const [dashboardFilters, setDashboardFilters] = useState(loadDashboardFilterSettings);
   const [exportOpen, setExportOpen] = useState(false);
   const [defaultExportScope, setDefaultExportScope] = useState<ExportScope>('dashboard');
   const lastErrorRef = useRef<string | null>(null);
+
+  const { dateBasis, weekStart, statusModes } = dashboardFilters;
 
   useEffect(() => {
     const onHashChange = () => setView(getViewFromHash());
@@ -69,6 +75,10 @@ export default function App() {
   }, [tasks, mapping, overrides]);
 
   useEffect(() => {
+    saveDashboardFilterSettings(dashboardFilters);
+  }, [dashboardFilters]);
+
+  useEffect(() => {
     if (error && error !== lastErrorRef.current) {
       lastErrorRef.current = error;
       toast.push(`Could not load tasks: ${error}`, 'error');
@@ -76,24 +86,31 @@ export default function App() {
   }, [error, toast]);
 
   const range = useMemo(
-    () => getPeriodRange(period, customStart, customEnd),
-    [period, customStart, customEnd]
+    () => getPeriodRange(period, customStart, customEnd, weekStart),
+    [period, customStart, customEnd, weekStart]
   );
 
-  const board = useMemo(
-    () => getBoardForDate(range.end, tasks, mapping, overrides, snapshots),
-    [range.end, tasks, mapping, overrides, snapshots]
-  );
+  const setDateBasis = (next: DashboardDateBasis) => {
+    setDashboardFilters((current) => ({ ...current, dateBasis: next }));
+  };
 
-  const boardTasks = useMemo(() => {
-    if (board.source === 'snapshot') return null;
-    if (board.source !== 'approximate') return tasks;
-    const end = endOfDayMs(range.end);
-    return tasks.filter((task) => {
-      const created = parseDate(task.created_at);
-      return created !== null && created.getTime() <= end;
-    });
-  }, [board.source, range.end, tasks]);
+  const setWeekStart = (next: WeekStart) => {
+    setDashboardFilters((current) => ({ ...current, weekStart: next }));
+  };
+
+  const setStatusMode = (status: DashboardStatus, mode: DashboardStatusMode) => {
+    setDashboardFilters((current) => ({
+      ...current,
+      statusModes: { ...current.statusModes, [status]: mode },
+    }));
+  };
+
+  const setAllStatusModes = (mode: DashboardStatusMode) => {
+    setDashboardFilters((current) => ({
+      ...current,
+      statusModes: emptyStatusModes(mode),
+    }));
+  };
 
   const navigate = (next: View) => {
     window.location.hash = next === 'dashboard' ? '#/dashboard' : next === 'login' ? '#/login' : '#/tasks';
@@ -224,11 +241,18 @@ export default function App() {
           period={period}
           customStart={customStart}
           customEnd={customEnd}
+          dateBasis={dateBasis}
+          weekStart={weekStart}
+          statusModes={statusModes}
           onSelectPeriod={setPeriod}
           onCustomRangeChange={(start, end) => {
             setCustomStart(start);
             setCustomEnd(end);
           }}
+          onDateBasisChange={setDateBasis}
+          onWeekStartChange={setWeekStart}
+          onStatusModeChange={setStatusMode}
+          onSetAllStatusModes={setAllStatusModes}
           onOpenTasks={() => navigate('tasks')}
         />
       )}
@@ -245,10 +269,11 @@ export default function App() {
         tasks={tasks}
         mapping={mapping}
         overrides={overrides}
-        board={board}
-        boardTasks={boardTasks}
         range={range}
-        periodLabel={formatPeriodLabel(period, range)}
+        periodLabel={formatPeriodLabel(period, range, weekStart)}
+        dateBasis={dateBasis}
+        weekStart={weekStart}
+        statusModes={statusModes}
       />
     </div>
   );

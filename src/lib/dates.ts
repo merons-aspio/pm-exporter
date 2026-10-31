@@ -2,6 +2,25 @@ export type PeriodKey = 'today' | 'yesterday' | 'thisWeek' | 'lastWeek' | 'thisM
 
 export type TestingTimeframe = 'daily' | 'weekly' | 'monthly';
 
+export type WeekStart = 'monday' | 'saturday' | 'friday';
+
+export const WEEK_START_OPTIONS: Array<{ value: WeekStart; label: string }> = [
+  { value: 'monday', label: 'Monday' },
+  { value: 'friday', label: 'Friday' },
+  { value: 'saturday', label: 'Saturday' },
+];
+
+export function weekStartDay(weekStart: WeekStart = 'monday'): number {
+  switch (weekStart) {
+    case 'friday':
+      return 5;
+    case 'saturday':
+      return 6;
+    case 'monday':
+      return 1;
+  }
+}
+
 export function parseDate(value: string | null | undefined): Date | null {
   if (!value) return null;
 
@@ -74,17 +93,21 @@ export function daysBetween(startKey: string, endKey: string): string[] {
   return days;
 }
 
-/** Monday of the week containing `date` (local time). */
-export function startOfWeekKey(date: Date = new Date()): string {
+/** Start of the week containing `date` for the configured week start. */
+export function startOfWeekKey(date: Date = new Date(), weekStart: WeekStart = 'monday'): string {
   const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = start.getDay(); // 0 = Sunday
-  start.setDate(start.getDate() + (day === 0 ? -6 : 1 - day));
+  const diff = (day - weekStartDay(weekStart) + 7) % 7;
+  start.setDate(start.getDate() - diff);
   return toDateKey(start);
 }
 
-/** Monday–Sunday bounds for the current week plus `offsetWeeks`. */
-export function getWeekBounds(offsetWeeks = 0): { start: string; end: string } {
-  const start = parseDateKey(startOfWeekKey()) ?? new Date();
+/** Seven-day bounds for the current week plus `offsetWeeks`. */
+export function getWeekBounds(
+  offsetWeeks = 0,
+  weekStart: WeekStart = 'monday'
+): { start: string; end: string } {
+  const start = parseDateKey(startOfWeekKey(new Date(), weekStart)) ?? new Date();
   start.setDate(start.getDate() + offsetWeeks * 7);
   const startKey = toDateKey(start);
   start.setDate(start.getDate() + 6);
@@ -157,7 +180,8 @@ export function formatRangeDates(startKey: string, endKey: string): string {
 
 export function formatPeriodLabel(
   period: PeriodKey,
-  range: { start: string; end: string }
+  range: { start: string; end: string },
+  weekStart: WeekStart = 'monday'
 ): string {
   switch (period) {
     case 'today':
@@ -165,11 +189,11 @@ export function formatPeriodLabel(
     case 'yesterday':
       return `Yesterday (${formatMonthDay(range.start)})`;
     case 'thisWeek': {
-      const week = getWeekBounds(0);
+      const week = getWeekBounds(0, weekStart);
       return `This Week (${formatRangeDates(week.start, week.end)})`;
     }
     case 'lastWeek': {
-      const week = getWeekBounds(-1);
+      const week = getWeekBounds(-1, weekStart);
       return `Last Week (${formatRangeDates(week.start, week.end)})`;
     }
     case 'thisMonth':
@@ -179,33 +203,56 @@ export function formatPeriodLabel(
   }
 }
 
-export function getTestingRange(timeframe: TestingTimeframe): {
+export function getTestingRange(
+  timeframe: TestingTimeframe,
+  weekStart: WeekStart = 'monday',
+  anchorKey: string = todayKey()
+): {
   start: string;
   end: string;
   label: string;
 } {
   const today = todayKey();
+  const anchor = parseDateKey(anchorKey) ?? parseDateKey(today) ?? new Date();
+  const anchorDay = toDateKey(anchor);
 
   if (timeframe === 'daily') {
-    return { start: today, end: today, label: "Today's QA Queue" };
+    return {
+      start: anchorDay,
+      end: anchorDay,
+      label: anchorDay === today ? "Today's QA Queue" : `QA Queue · ${formatMonthDay(anchorDay)}`,
+    };
   }
 
   if (timeframe === 'weekly') {
-    return { start: startOfWeekKey(), end: today, label: "This Week's QA Queue" };
+    const start = startOfWeekKey(anchor, weekStart);
+    return {
+      start,
+      end: anchorDay,
+      label:
+        anchorDay === today
+          ? "This Week's QA Queue"
+          : `QA Queue · ${formatRangeDates(start, anchorDay)}`,
+    };
   }
 
-  const now = new Date();
+  const start = toDateKey(new Date(anchor.getFullYear(), anchor.getMonth(), 1));
   return {
-    start: toDateKey(new Date(now.getFullYear(), now.getMonth(), 1)),
-    end: today,
-    label: "This Month's QA Queue",
+    start,
+    end: anchorDay,
+    label:
+      anchor.getFullYear() === new Date().getFullYear() &&
+      anchor.getMonth() === new Date().getMonth()
+        ? "This Month's QA Queue"
+        : `QA Queue · ${formatMonthYear(start)}`,
   };
 }
 
 export function getPeriodRange(
   period: PeriodKey,
   customStart: string,
-  customEnd: string
+  customEnd: string,
+  weekStart: WeekStart = 'monday'
 ): { start: string; end: string; days: string[] } {
   const today = todayKey();
 
@@ -217,11 +264,11 @@ export function getPeriodRange(
       return { start: yesterday, end: yesterday, days: [yesterday] };
     }
     case 'thisWeek': {
-      const week = getWeekBounds(0);
+      const week = getWeekBounds(0, weekStart);
       return { start: week.start, end: today, days: daysBetween(week.start, today) };
     }
     case 'lastWeek': {
-      const week = getWeekBounds(-1);
+      const week = getWeekBounds(-1, weekStart);
       return { start: week.start, end: week.end, days: daysBetween(week.start, week.end) };
     }
     case 'thisMonth': {
