@@ -2,14 +2,13 @@ import { useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { Settings2, X } from 'lucide-react';
 import { BUCKET_META, BUCKET_ORDER } from '../lib/status';
-import type { Bucket, StatusMapping } from '../lib/status';
+import type { Bucket } from '../lib/status';
 import { selectStyle } from './ui';
 
 interface StatusMappingModalProps {
   open: boolean;
   onClose: () => void;
-  listRows: Array<{ name: string; count: number; bucket: Bucket }>;
-  mapping: StatusMapping;
+  listRows: Array<{ name: string; count: number; bucket: Bucket | null }>;
   onMappingChange: (list: string, bucket: Bucket) => void;
   onSetAsDefault: () => void;
   onResetToDefault: () => void;
@@ -32,7 +31,6 @@ export default function StatusMappingModal({
   open,
   onClose,
   listRows,
-  mapping,
   onMappingChange,
   onSetAsDefault,
   onResetToDefault,
@@ -60,6 +58,8 @@ export default function StatusMappingModal({
   }, [saved]);
 
   if (!open) return null;
+
+  const unmappedCount = listRows.filter((row) => row.bucket === null).length;
 
   return (
     <div
@@ -103,8 +103,8 @@ export default function StatusMappingModal({
               <Settings2 size={16} /> Status Mapping
             </h3>
             <p style={{ margin: '0.2rem 0 0', fontSize: '0.78rem', color: '#64748b' }}>
-              Board lists → dashboard buckets. Changes apply immediately. Save your current mapping as the default so
-              you can restore it later.
+              Board lists → dashboard buckets. Only explicitly mapped lists count on the dashboard;
+              unmapped lists are excluded. Changes apply immediately.
             </p>
           </div>
           <button
@@ -130,49 +130,83 @@ export default function StatusMappingModal({
 
         <div style={{ padding: '0.9rem 1rem', overflowY: 'auto' }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '0.5rem' }}>
-            {listRows.map((row) => (
-              <div
-                key={row.name}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  padding: '0.4rem 0.5rem',
-                  border: '1px solid #f1f5f9',
-                  borderRadius: 6,
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div
-                    style={{
-                      fontSize: '0.82rem',
-                      color: '#334155',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                    title={row.name}
-                  >
-                    {row.name}
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>{row.count} tasks</div>
-                </div>
-                <select
-                  value={mapping[row.name] ?? row.bucket}
-                  onChange={(event) => onMappingChange(row.name, event.target.value as Bucket)}
-                  style={{ ...selectStyle, width: 'auto', fontSize: '0.78rem', padding: '0.3rem 0.35rem' }}
+            {listRows.map((row) => {
+              const unmapped = row.bucket === null;
+
+              return (
+                <div
+                  key={row.name}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    padding: '0.4rem 0.5rem',
+                    border: `1px solid ${unmapped ? '#fde68a' : '#f1f5f9'}`,
+                    backgroundColor: unmapped ? '#fffbeb' : undefined,
+                    borderRadius: 6,
+                  }}
                 >
-                  {BUCKET_ORDER.map((bucket) => (
-                    <option key={bucket} value={bucket}>
-                      {BUCKET_META[bucket].label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            ))}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: '0.82rem',
+                        color: '#334155',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                      title={row.name}
+                    >
+                      {row.name}
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: unmapped ? '#b45309' : '#94a3b8' }}>
+                      {row.count} tasks{unmapped ? ' · unmapped, excluded' : ''}
+                    </div>
+                  </div>
+                  <select
+                    value={row.bucket ?? ''}
+                    onChange={(event) => onMappingChange(row.name, event.target.value as Bucket)}
+                    style={{ ...selectStyle, width: 'auto', fontSize: '0.78rem', padding: '0.3rem 0.35rem' }}
+                  >
+                    {unmapped && (
+                      <option value="" disabled>
+                        Unmapped (excluded)
+                      </option>
+                    )}
+                    {BUCKET_ORDER.map((bucket) => (
+                      <option key={bucket} value={bucket}>
+                        {BUCKET_META[bucket].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
           </div>
 
+          {unmappedCount > 0 && (
+            <p
+              style={{
+                margin: '0.75rem 0 0',
+                padding: '0.45rem 0.6rem',
+                borderRadius: 5,
+                backgroundColor: '#fffbeb',
+                border: '1px solid #fde68a',
+                fontSize: '0.75rem',
+                color: '#b45309',
+              }}
+            >
+              {unmappedCount} board list{unmappedCount === 1 ? '' : 's'} not mapped. Their tasks are
+              excluded from the dashboard cards until you choose a bucket.
+            </p>
+          )}
+
           <p style={{ margin: '0.75rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
+            Completed lists feed the detailed breakdown and standup, but only Icebox through
+            Pushed/Live appear as the seven dashboard cards.
+          </p>
+
+          <p style={{ margin: '0.35rem 0 0', fontSize: '0.75rem', color: '#64748b' }}>
             {hasSavedDefault
               ? 'A saved default exists. “Reset to saved default” restores it.'
               : 'No saved default yet — “Reset to saved default” uses the built-in defaults.'}

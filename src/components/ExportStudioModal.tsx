@@ -8,7 +8,7 @@ import {
   X,
 } from 'lucide-react';
 import type { EnrichedTaskData } from '../services/hubstaff';
-import type { StatusMapping, StatusOverrides } from '../lib/status';
+import type { StatusMapping } from '../lib/status';
 import {
   DASHBOARD_DATE_BASIS_LABEL,
   DASHBOARD_STATUS_META,
@@ -23,7 +23,7 @@ import {
 } from '../lib/dashboard';
 import { WEEK_START_OPTIONS, fileTimestamp } from '../lib/dates';
 import type { WeekStart } from '../lib/dates';
-import { buildExportRows } from '../lib/exportRows';
+import { buildStrictExportRows } from '../lib/exportRows';
 import { downloadCsv, downloadJson, downloadText } from '../lib/csv';
 import { useToast } from './ToastProvider';
 
@@ -36,7 +36,6 @@ interface ExportStudioModalProps {
   defaultScope: ExportScope;
   tasks: EnrichedTaskData[];
   mapping: StatusMapping;
-  overrides: StatusOverrides;
   range: { start: string; end: string };
   periodLabel: string;
   dateBasis: DashboardDateBasis;
@@ -64,7 +63,6 @@ export default function ExportStudioModal({
   defaultScope,
   tasks,
   mapping,
-  overrides,
   range,
   periodLabel,
   dateBasis,
@@ -106,17 +104,16 @@ export default function ExportStudioModal({
       summarizeDashboardStatuses(
         tasks,
         mapping,
-        overrides,
         range,
         dateBasis,
         statusModes
       ),
-    [tasks, mapping, overrides, range, dateBasis, statusModes]
+    [tasks, mapping, range, dateBasis, statusModes]
   );
 
   const taskStatusCounts = useMemo(
-    () => countDashboardStatuses(tasks, mapping, overrides),
-    [tasks, mapping, overrides]
+    () => countDashboardStatuses(tasks, mapping),
+    [tasks, mapping]
   );
 
   const assignees = useMemo(
@@ -124,25 +121,35 @@ export default function ExportStudioModal({
       computeAssigneePerformance(
         tasks,
         mapping,
-        overrides,
         range,
         dateBasis,
         statusModes
       ),
-    [tasks, mapping, overrides, range, dateBasis, statusModes]
+    [tasks, mapping, range, dateBasis, statusModes]
   );
 
   const taskRows = useMemo(() => {
     if (scope !== 'tasks') return [];
-    const filtered = tasks.filter((task) => selectedSet.has(getDashboardStatus(task, mapping, overrides)));
-    const rows = buildExportRows(filtered, mapping, overrides);
+
+    const filtered = tasks
+      .map((task) => ({ task, status: getDashboardStatus(task, mapping) }))
+      .filter(
+        (
+          entry
+        ): entry is { task: EnrichedTaskData; status: DashboardStatus } =>
+          entry.status !== null && selectedSet.has(entry.status)
+      );
+
+    const rows = buildStrictExportRows(
+      filtered.map((entry) => entry.task),
+      mapping
+    );
 
     return rows.map((row, index) => ({
-      'Dashboard Status':
-        DASHBOARD_STATUS_META[getDashboardStatus(filtered[index], mapping, overrides)].label,
+      'Dashboard Status': DASHBOARD_STATUS_META[filtered[index].status].label,
       ...row,
     }));
-  }, [scope, tasks, mapping, overrides, selectedSet]);
+  }, [scope, tasks, mapping, selectedSet]);
 
   if (!open) return null;
 
@@ -389,7 +396,7 @@ export default function ExportStudioModal({
             <p className="mt-2 text-[10px] text-slate-400">
               {scope === 'dashboard'
                 ? `${periodLabel} · ${DASHBOARD_DATE_BASIS_LABEL[dateBasis]} · week starts ${WEEK_START_LABEL[weekStart]}`
-                : 'Tasks Matrix export includes the full task set; dashboard period filters do not apply.'}
+                : 'Tasks Matrix export includes all-time tasks in the selected board statuses; dashboard period filters do not apply.'}
             </p>
           </div>
 
@@ -445,8 +452,8 @@ export default function ExportStudioModal({
             <p className="mb-2.5 flex items-center gap-1.5 rounded-lg border border-amber-100 bg-amber-50 p-2 text-[11px] font-medium text-amber-600">
               <Info className="h-3.5 w-3.5 flex-shrink-0" />
               <span>
-                All options start unselected. Dashboard counts follow each status&apos;s Period/All
-                scope and the selected date basis.
+                All options start unselected. Counts use only tasks currently in the selected board
+                lists, then apply each status&apos;s Period/All scope and the selected date basis.
               </span>
             </p>
 
@@ -482,7 +489,7 @@ export default function ExportStudioModal({
                       title={
                         scope === 'dashboard'
                           ? `${buttonModeTitle(summary.filtered, summary.total, summary.mode)}`
-                          : `${taskStatusCounts[status]} tasks in the full task set`
+                          : `${taskStatusCounts[status]} tasks currently in this board status`
                       }
                     >
                       {countText}

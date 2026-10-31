@@ -67,6 +67,9 @@ export function emptyBucketCounts(): Record<Bucket, number> {
 /**
  * Resolve the bucket for a raw board list. Explicit mappings always win; the
  * fuzzy fallbacks only protect against a renamed or newly-added list.
+ *
+ * This is intentionally not used by the live dashboard. Dashboard membership
+ * is strict and must come from getMappedListBucket below.
  */
 export function getListBucketByName(list: string, mapping: StatusMapping): Bucket {
   const mapped = mapping[list];
@@ -85,6 +88,21 @@ export function getListBucketByName(list: string, mapping: StatusMapping): Bucke
 
 export function getListBucket(task: EnrichedTaskData, mapping: StatusMapping): Bucket {
   return getListBucketByName(task.board_status, mapping);
+}
+
+/**
+ * Strict board membership for the live dashboard: the current list must have
+ * an explicit mapping. Unmapped / renamed / deleted lists return null instead
+ * of falling back to a guess.
+ */
+export function getMappedListBucket(list: string, mapping: StatusMapping): Bucket | null {
+  if (!Object.prototype.hasOwnProperty.call(mapping, list)) return null;
+  const bucket = mapping[list];
+  return typeof bucket === 'string' && isBucket(bucket) ? bucket : null;
+}
+
+export function getMappedBucket(task: EnrichedTaskData, mapping: StatusMapping): Bucket | null {
+  return getMappedListBucket(task.board_status, mapping);
 }
 
 export function getEffectiveBucket(

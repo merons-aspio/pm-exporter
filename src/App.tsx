@@ -268,7 +268,6 @@ export default function App() {
         defaultScope={defaultExportScope}
         tasks={tasks}
         mapping={mapping}
-        overrides={overrides}
         range={range}
         periodLabel={formatPeriodLabel(period, range, weekStart)}
         dateBasis={dateBasis}

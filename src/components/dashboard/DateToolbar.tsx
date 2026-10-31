@@ -25,6 +25,7 @@ interface DateToolbarProps {
   dateBasis: DashboardDateBasis;
   weekStart: WeekStart;
   statusModes: DashboardStatusModes;
+  unmappedTasks?: number;
   onSelectPeriod: (period: PeriodKey) => void;
   onCustomRangeChange: (start: string, end: string) => void;
   onDateBasisChange: (basis: DashboardDateBasis) => void;
@@ -64,6 +65,7 @@ export default function DateToolbar({
   dateBasis,
   weekStart,
   statusModes,
+  unmappedTasks = 0,
   onSelectPeriod,
   onCustomRangeChange,
   onDateBasisChange,
@@ -213,11 +215,20 @@ export default function DateToolbar({
           <button
             type="button"
             onClick={onOpenMapping}
-            title="Status mapping"
-            className="ml-1 inline-flex items-center justify-center rounded-lg border border-slate-200 p-1.5 text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900"
+            title={
+              unmappedTasks > 0
+                ? `${unmappedTasks} task${unmappedTasks === 1 ? '' : 's'} on unmapped lists are excluded from the dashboard`
+                : 'Status mapping'
+            }
+            className="relative ml-1 inline-flex items-center justify-center rounded-lg border border-slate-200 p-1.5 text-slate-500 transition-all hover:bg-slate-100 hover:text-slate-900"
             aria-label="Open status mapping"
           >
             <Settings2 className="h-4 w-4" />
+            {unmappedTasks > 0 && (
+              <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-amber-500 px-1 text-[9px] font-bold text-white shadow-sm">
+                {unmappedTasks > 99 ? '99+' : unmappedTasks}
+              </span>
+            )}
           </button>
         </div>
       </div>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { EnrichedTaskData } from '../services/hubstaff';
 import type { Bucket, StatusMapping, StatusOverrides } from '../lib/status';
-import { DEFAULT_LIST_MAPPING } from '../lib/status';
+import { DEFAULT_LIST_MAPPING, getMappedBucket } from '../lib/status';
 import type { SnapshotStore } from '../lib/snapshots';
 import { getBoardForDate } from '../lib/snapshots';
 import type { PeriodKey, WeekStart } from '../lib/dates';
@@ -27,7 +27,7 @@ import {
   loadStandupSettings,
   saveStandupSettings,
 } from '../lib/standup';
-import { buildExportRows } from '../lib/exportRows';
+import { buildStrictExportRows } from '../lib/exportRows';
 import type { ListTransition } from '../lib/transitions';
 import ExportDialog from '../components/ExportDialog';
 import StatusMappingModal from '../components/StatusMappingModal';
@@ -146,7 +146,8 @@ export default function DashboardPage({
   );
 
   // Historical snapshots keep powering the detailed day-by-day breakdown.
-  // The top dashboard filters current task status by the selected date basis.
+  // The top dashboard starts from the task's current board list, then applies
+  // the selected date basis inside that strict board membership.
   const dashboardTasks = tasks;
   const canDrill = dashboardTasks.length > 0;
 
@@ -155,12 +156,11 @@ export default function DashboardPage({
       summarizeDashboardStatuses(
         dashboardTasks,
         mapping,
-        overrides,
         range,
         dateBasis,
         statusModes
       ),
-    [dashboardTasks, mapping, overrides, range, dateBasis, statusModes]
+    [dashboardTasks, mapping, range, dateBasis, statusModes]
   );
 
   const counts = useMemo(() => effectiveDashboardCounts(statusSummary), [statusSummary]);
@@ -170,17 +170,16 @@ export default function DashboardPage({
       computeAssigneePerformance(
         dashboardTasks,
         mapping,
-        overrides,
         range,
         dateBasis,
         statusModes
       ),
-    [dashboardTasks, mapping, overrides, range, dateBasis, statusModes]
+    [dashboardTasks, mapping, range, dateBasis, statusModes]
   );
 
   const blockedAllItems = useMemo(
-    () => buildBlockedItems(dashboardTasks, transitions, mapping, overrides),
-    [dashboardTasks, transitions, mapping, overrides]
+    () => buildBlockedItems(dashboardTasks, transitions, mapping),
+    [dashboardTasks, transitions, mapping]
   );
 
   const blockedPeriodItems = useMemo(
@@ -230,18 +229,30 @@ export default function DashboardPage({
     });
 
     return Array.from(listCounts.entries())
-      .map(([name, info]) => ({
-        name,
-        count: info.count,
-        position: info.position,
-        bucket: mapping[name] ?? 'todo',
-      }))
+      .map(
+        ([name, info]): {
+          name: string;
+          count: number;
+          position: number;
+          bucket: Bucket | null;
+        } => ({
+          name,
+          count: info.count,
+          position: info.position,
+          bucket: mapping[name] ?? null,
+        })
+      )
       .sort((a, b) => a.position - b.position);
   }, [tasks, mapping]);
 
   const listOptions = useMemo(
     () => listRows.map((row) => ({ name: row.name, count: row.count })),
     [listRows]
+  );
+
+  const unmappedTaskCount = useMemo(
+    () => tasks.filter((task) => getMappedBucket(task, mapping) === null).length,
+    [tasks, mapping]
   );
 
   const handleSelectStandupPerson = (name: string) => {
@@ -277,7 +288,7 @@ export default function DashboardPage({
 
   const handleDrilldownExport = () => {
     if (!drilldown) return;
-    const exportRows = buildExportRows(drilldown.tasks, mapping, overrides);
+    const exportRows = buildStrictExportRows(drilldown.tasks, mapping);
     setExportState({
       title: `Export · ${drilldown.title}`,
       rows: exportRows,
@@ -300,7 +311,6 @@ export default function DashboardPage({
         dashboardTasks,
         status,
         mapping,
-        overrides,
         range,
         dateBasis,
         statusModes
@@ -326,7 +336,6 @@ export default function DashboardPage({
         dashboardTasks,
         'testing',
         mapping,
-        overrides,
         range,
         dateBasis,
         statusModes
@@ -351,6 +360,7 @@ export default function DashboardPage({
         dateBasis={dateBasis}
         weekStart={weekStart}
         statusModes={statusModes}
+        unmappedTasks={unmappedTaskCount}
         onSelectPeriod={onSelectPeriod}
         onCustomRangeChange={onCustomRangeChange}
         onDateBasisChange={onDateBasisChange}
@@ -398,7 +408,6 @@ export default function DashboardPage({
               tasks={dashboardTasks}
               transitions={transitions}
               mapping={mapping}
-              overrides={overrides}
               boardDate={boardDate}
               range={range}
               dateBasis={dateBasis}
@@ -451,7 +460,6 @@ export default function DashboardPage({
           title={drilldown.title}
           tasks={drilldown.tasks}
           mapping={mapping}
-          overrides={overrides}
           onClose={() => setDrilldown(null)}
           onExport={handleDrilldownExport}
         />
@@ -461,7 +469,6 @@ export default function DashboardPage({
         open={mappingOpen}
         onClose={() => setMappingOpen(false)}
         listRows={listRows}
-        mapping={mapping}
         onMappingChange={onMappingChange}
         onSetAsDefault={onSetMappingDefault}
         onResetToDefault={onResetMappingToDefault}

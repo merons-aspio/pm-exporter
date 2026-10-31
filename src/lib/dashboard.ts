@@ -1,6 +1,6 @@
 import type { EnrichedTaskData } from '../services/hubstaff';
-import { getEffectiveBucket, getListBucketByName } from './status';
-import type { Bucket, StatusMapping, StatusOverrides } from './status';
+import { getMappedBucket, getMappedListBucket } from './status';
+import type { Bucket, StatusMapping } from './status';
 import {
   daysOverdue,
   endOfDayMs,
@@ -152,7 +152,7 @@ export const DASHBOARD_STATUS_META: Record<DashboardStatus, DashboardStatusMeta>
     bg: '#ecfdf5',
     border: '#a7f3d0',
     bar: '#10b981',
-    description: 'Delivered work, including completed tasks.',
+    description: 'Tasks currently in the Pushed/live board. Completed tasks are not counted here.',
   },
 };
 
@@ -169,17 +169,18 @@ export function emptyDashboardCounts(): Record<DashboardStatus, number> {
 }
 
 /**
- * Dashboard status is a presentation layer over the internal buckets:
- * - `backlog` becomes Icebox
- * - `current_sprint` stays separate from In Progress
- * - `pushed` and `done` both count as delivered
+ * Dashboard status is a direct presentation of the task's CURRENT board list.
+ *
+ * Strict membership rules:
+ * - the list must be explicitly mapped; unmapped lists return null
+ * - task-level overrides are ignored
+ * - `done` is not folded into Pushed/Live; only the Pushed/live board counts
  */
 export function getDashboardStatus(
   task: EnrichedTaskData,
-  mapping: StatusMapping,
-  overrides: StatusOverrides
-): DashboardStatus {
-  const bucket = getEffectiveBucket(task, mapping, overrides);
+  mapping: StatusMapping
+): DashboardStatus | null {
+  const bucket = getMappedBucket(task, mapping);
 
   switch (bucket) {
     case 'backlog':
@@ -195,19 +196,21 @@ export function getDashboardStatus(
     case 'blocked':
       return 'blocked';
     case 'pushed':
-    case 'done':
       return 'pushed';
+    case 'done':
+    case null:
+      return null;
   }
 }
 
 export function countDashboardStatuses(
   tasks: EnrichedTaskData[],
-  mapping: StatusMapping,
-  overrides: StatusOverrides
+  mapping: StatusMapping
 ): Record<DashboardStatus, number> {
   const counts = emptyDashboardCounts();
   tasks.forEach((task) => {
-    counts[getDashboardStatus(task, mapping, overrides)] += 1;
+    const status = getDashboardStatus(task, mapping);
+    if (status) counts[status] += 1;
   });
   return counts;
 }
@@ -279,7 +282,6 @@ export type DashboardStatusSummary = Record<DashboardStatus, DashboardStatusSumm
 export function summarizeDashboardStatuses(
   tasks: EnrichedTaskData[],
   mapping: StatusMapping,
-  overrides: StatusOverrides,
   range: DashboardPeriodRange,
   basis: DashboardDateBasis,
   modes: DashboardStatusModes
@@ -296,7 +298,9 @@ export function summarizeDashboardStatuses(
   });
 
   tasks.forEach((task) => {
-    const status = getDashboardStatus(task, mapping, overrides);
+    const status = getDashboardStatus(task, mapping);
+    if (!status) return;
+
     const entry = summary[status];
     entry.total += 1;
     if (isTaskInDashboardRange(task, basis, range)) entry.filtered += 1;
@@ -344,14 +348,13 @@ export function filterTasksForStatus(
   tasks: EnrichedTaskData[],
   status: DashboardStatus,
   mapping: StatusMapping,
-  overrides: StatusOverrides,
   range: DashboardPeriodRange,
   basis: DashboardDateBasis,
   modes: DashboardStatusModes
 ): EnrichedTaskData[] {
   return tasks.filter(
     (task) =>
-      getDashboardStatus(task, mapping, overrides) === status &&
+      getDashboardStatus(task, mapping) === status &&
       summaryForTask(task, status, range, basis, modes)
   );
 }
@@ -419,7 +422,6 @@ function tasksByAssignee(tasks: EnrichedTaskData[]): Map<string, EnrichedTaskDat
 export function computeAssigneePerformance(
   tasks: EnrichedTaskData[],
   mapping: StatusMapping,
-  overrides: StatusOverrides,
   range: DashboardPeriodRange,
   basis: DashboardDateBasis,
   modes: DashboardStatusModes
@@ -431,7 +433,8 @@ export function computeAssigneePerformance(
     let overduePastDue = 0;
 
     personTasks.forEach((task) => {
-      const status = getDashboardStatus(task, mapping, overrides);
+      const status = getDashboardStatus(task, mapping);
+      if (!status) return;
       if (!summaryForTask(task, status, range, basis, modes)) return;
 
       counts[status] += 1;
@@ -511,7 +514,7 @@ function latestTransitionInto(
   let latest: ListTransition | null = null;
 
   list.forEach((transition) => {
-    if (getListBucketByName(transition.to, mapping) !== bucket) return;
+    if (getMappedListBucket(transition.to, mapping) !== bucket) return;
     if (!latest || new Date(transition.at).getTime() > new Date(latest.at).getTime()) {
       latest = transition;
     }
@@ -537,7 +540,6 @@ export function buildTestingQueue(
   boardTasks: EnrichedTaskData[] | null,
   transitions: ListTransition[],
   mapping: StatusMapping,
-  overrides: StatusOverrides,
   timeframe: TestingTimeframe,
   options: TestingQueueOptions
 ): TestingQueue {
@@ -553,7 +555,7 @@ export function buildTestingQueue(
   const items: TestingQueueItem[] = [];
 
   boardTasks.forEach((task) => {
-    if (getEffectiveBucket(task, mapping, overrides) !== 'testing') return;
+    if (getMappedBucket(task, mapping) !== 'testing') return;
     if (
       options.mode === 'period' &&
       !isTaskInDashboardRange(task, options.basis, options.range)
@@ -607,8 +609,7 @@ function summarizeReason(value: string, max = 120): string {
 export function buildBlockedItems(
   boardTasks: EnrichedTaskData[] | null,
   transitions: ListTransition[],
-  mapping: StatusMapping,
-  overrides: StatusOverrides
+  mapping: StatusMapping
 ): BlockedItem[] {
   if (!boardTasks) return [];
 
@@ -616,7 +617,7 @@ export function buildBlockedItems(
   const items: BlockedItem[] = [];
 
   boardTasks.forEach((task) => {
-    if (getEffectiveBucket(task, mapping, overrides) !== 'blocked') return;
+    if (getMappedBucket(task, mapping) !== 'blocked') return;
 
     const transition = latestTransitionInto(task.id, transitionMap, mapping, 'blocked');
     items.push({

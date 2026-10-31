@@ -1,8 +1,8 @@
 import { useEffect } from 'react';
 import { Download, X } from 'lucide-react';
 import type { EnrichedTaskData } from '../../services/hubstaff';
-import type { StatusMapping, StatusOverrides } from '../../lib/status';
-import { getEffectiveBucket } from '../../lib/status';
+import type { StatusMapping } from '../../lib/status';
+import { getMappedBucket } from '../../lib/status';
 import { daysOverdue, formatDate, isDueToday, parseDate } from '../../lib/dates';
 import { StatusBadge } from '../ui';
 
@@ -10,7 +10,6 @@ interface DrilldownModalProps {
   title: string;
   tasks: EnrichedTaskData[];
   mapping: StatusMapping;
-  overrides: StatusOverrides;
   onClose: () => void;
   onExport: () => void;
 }
@@ -19,7 +18,6 @@ export default function DrilldownModal({
   title,
   tasks,
   mapping,
-  overrides,
   onClose,
   onExport,
 }: DrilldownModalProps) {
@@ -84,6 +82,7 @@ export default function DrilldownModal({
               {tasks.slice(0, 500).map((task) => {
                 const late = daysOverdue(task.due_date);
                 const due = parseDate(task.due_date);
+                const bucket = getMappedBucket(task, mapping);
                 const lateLabel = !due ? '—' : late > 0 ? `${late}d` : isDueToday(task.due_date) ? 'today' : '—';
 
                 return (
@@ -96,7 +95,7 @@ export default function DrilldownModal({
                       {task.board_status}
                     </td>
                     <td className="border-b border-slate-100 px-3 py-2.5 text-xs">
-                      <StatusBadge bucket={getEffectiveBucket(task, mapping, overrides)} />
+                      {bucket ? <StatusBadge bucket={bucket} /> : 'Unmapped'}
                     </td>
                     <td className="border-b border-slate-100 px-3 py-2.5 text-xs text-slate-600">
                       {task.assignee_names.join(', ') || 'Unassigned'}

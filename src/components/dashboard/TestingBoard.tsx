@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { ArrowRight, FlaskConical } from 'lucide-react';
 import type { EnrichedTaskData } from '../../services/hubstaff';
-import type { StatusMapping, StatusOverrides } from '../../lib/status';
+import type { StatusMapping } from '../../lib/status';
 import type { ListTransition } from '../../lib/transitions';
 import type { TestingTimeframe, WeekStart } from '../../lib/dates';
 import {
@@ -18,7 +18,6 @@ interface TestingBoardProps {
   tasks: EnrichedTaskData[] | null;
   transitions: ListTransition[];
   mapping: StatusMapping;
-  overrides: StatusOverrides;
   boardDate: string;
   range: DashboardPeriodRange;
   dateBasis: DashboardDateBasis;
@@ -40,7 +39,6 @@ export default function TestingBoard({
   tasks,
   transitions,
   mapping,
-  overrides,
   boardDate,
   range,
   dateBasis,
@@ -56,14 +54,14 @@ export default function TestingBoard({
 
   const queue = useMemo(
     () =>
-      buildTestingQueue(tasks, transitions, mapping, overrides, timeframe, {
+      buildTestingQueue(tasks, transitions, mapping, timeframe, {
         range,
         basis: dateBasis,
         mode,
         weekStart,
         referenceDate: boardDate,
       }),
-    [tasks, transitions, mapping, overrides, timeframe, range, dateBasis, mode, weekStart, boardDate]
+    [tasks, transitions, mapping, timeframe, range, dateBasis, mode, weekStart, boardDate]
   );
 
   const count = queue.available ? queue.items.length : dashboardTotal;
