@@ -274,10 +274,24 @@ export interface DashboardStatusSummaryEntry {
   filtered: number;
   total: number;
   effective: number;
+  filteredEstimate: number;
+  totalEstimate: number;
+  effectiveEstimate: number;
   mode: DashboardStatusMode;
 }
 
 export type DashboardStatusSummary = Record<DashboardStatus, DashboardStatusSummaryEntry>;
+
+function taskEstimateHours(task: EnrichedTaskData): number {
+  const value = Number(task.estimate_hours);
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function formatEstimateHours(hours: number): string {
+  const safe = Number.isFinite(hours) && hours > 0 ? hours : 0;
+  const rounded = Math.round(safe * 10) / 10;
+  return `${rounded.toLocaleString('en-US', { maximumFractionDigits: 1 })}h`;
+}
 
 export function summarizeDashboardStatuses(
   tasks: EnrichedTaskData[],
@@ -293,6 +307,9 @@ export function summarizeDashboardStatuses(
       filtered: 0,
       total: 0,
       effective: 0,
+      filteredEstimate: 0,
+      totalEstimate: 0,
+      effectiveEstimate: 0,
       mode: modes[status],
     };
   });
@@ -302,13 +319,22 @@ export function summarizeDashboardStatuses(
     if (!status) return;
 
     const entry = summary[status];
+    const estimate = taskEstimateHours(task);
+    const inRange = isTaskInDashboardRange(task, basis, range);
+
     entry.total += 1;
-    if (isTaskInDashboardRange(task, basis, range)) entry.filtered += 1;
+    entry.totalEstimate += estimate;
+    if (inRange) {
+      entry.filtered += 1;
+      entry.filteredEstimate += estimate;
+    }
   });
 
   DASHBOARD_STATUS_ORDER.forEach((status) => {
     const entry = summary[status];
     entry.effective = entry.mode === 'all' ? entry.total : entry.filtered;
+    entry.effectiveEstimate =
+      entry.mode === 'all' ? entry.totalEstimate : entry.filteredEstimate;
   });
 
   return summary;

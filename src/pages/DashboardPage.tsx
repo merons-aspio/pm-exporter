@@ -379,6 +379,7 @@ export default function DashboardPage({
                 status={status}
                 filtered={entry.filtered}
                 total={entry.total}
+                estimateHours={entry.effectiveEstimate}
                 mode={entry.mode}
                 onModeChange={(mode) => onStatusModeChange(status, mode)}
                 onClick={() => openStatusDrilldown(status)}

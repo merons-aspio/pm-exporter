@@ -2,6 +2,7 @@ import {
   AlertOctagon,
   Archive,
   CheckCircle2,
+  Clock,
   FlaskConical,
   ListTodo,
   Loader,
@@ -10,6 +11,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import {
   DASHBOARD_STATUS_META,
+  formatEstimateHours,
   type DashboardStatus,
   type DashboardStatusMode,
 } from '../../lib/dashboard';
@@ -18,6 +20,7 @@ interface KpiCardProps {
   status: DashboardStatus;
   filtered: number;
   total: number;
+  estimateHours: number;
   mode: DashboardStatusMode;
   onModeChange: (mode: DashboardStatusMode) => void;
   onClick?: () => void;
@@ -38,6 +41,7 @@ export default function KpiCard({
   status,
   filtered,
   total,
+  estimateHours,
   mode,
   onModeChange,
   onClick,
@@ -46,6 +50,7 @@ export default function KpiCard({
   const meta = DASHBOARD_STATUS_META[status];
   const Icon = ICONS[status];
   const effective = mode === 'all' ? total : filtered;
+  const estimateLabel = formatEstimateHours(estimateHours);
 
   return (
     <div
@@ -68,8 +73,22 @@ export default function KpiCard({
           <Icon className="h-4 w-4 flex-shrink-0" style={{ color: meta.accent }} />
         </div>
 
-        <div className="text-2xl font-bold" style={{ color: meta.accent }}>
-          {effective}
+        <div className="flex flex-wrap items-baseline justify-between gap-x-2">
+          <div className="text-2xl font-bold" style={{ color: meta.accent }}>
+            {effective}
+          </div>
+
+          <div
+            className="flex items-center gap-1 text-[11px] font-semibold tabular-nums text-slate-600"
+            title={`Total estimate for the ${effective} ${
+              effective === 1 ? 'task' : 'tasks'
+            } currently shown. Tasks without an estimate count as 0h.`}
+          >
+            <Clock className="h-3 w-3 flex-shrink-0" style={{ color: meta.accent }} />
+            <span>
+              {estimateLabel} <span className="font-normal text-slate-400">est.</span>
+            </span>
+          </div>
         </div>
 
         <div className="mt-0.5 text-[10px] text-slate-400">{meta.hint}</div>
