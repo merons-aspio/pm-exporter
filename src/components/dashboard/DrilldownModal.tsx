@@ -12,6 +12,8 @@ interface DrilldownModalProps {
   mapping: StatusMapping;
   onClose: () => void;
   onExport: () => void;
+  assignee: string | null;
+  onAssigneeChange: (assignee: string | null) => void;
 }
 
 export default function DrilldownModal({
@@ -20,14 +22,20 @@ export default function DrilldownModal({
   mapping,
   onClose,
   onExport,
+  assignee,
+  onAssigneeChange,
 }: DrilldownModalProps) {
+  const filteredTasks = assignee
+    ? tasks.filter((task) => task.assignee_names.includes(assignee))
+    : tasks;
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, assignee]);
 
   return (
     <div
@@ -41,9 +49,21 @@ export default function DrilldownModal({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div>
             <h3 className="text-base font-bold text-slate-900">{title}</h3>
-            <p className="mt-0.5 text-xs text-slate-500">{tasks.length} tasks</p>
+            <p className="mt-0.5 text-xs text-slate-500">{filteredTasks.length} tasks</p>
           </div>
           <div className="flex items-center gap-2">
+            <select
+              value={assignee ?? ''}
+              onChange={(e) => onAssigneeChange(e.target.value || null)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 outline-none"
+            >
+              <option value="">All Assignees</option>
+              {Array.from(new Set(tasks.map((t) => t.assignee_names.join(', ') || 'Unassigned'))).map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
             <button
               type="button"
               onClick={onExport}
@@ -79,7 +99,7 @@ export default function DrilldownModal({
               </tr>
             </thead>
             <tbody>
-              {tasks.slice(0, 500).map((task) => {
+              {filteredTasks.slice(0, 500).map((task) => {
                 const late = daysOverdue(task.due_date);
                 const due = parseDate(task.due_date);
                 const bucket = getMappedBucket(task, mapping);
@@ -97,23 +117,19 @@ export default function DrilldownModal({
                     <td className="border-b border-slate-100 px-3 py-2.5 text-xs">
                       {bucket ? <StatusBadge bucket={bucket} /> : 'Unmapped'}
                     </td>
-                    <td className="border-b border-slate-100 px-3 py-2.5 text-xs text-slate-600">
+                    <td className="border-b border-slate-100 px-3 py-2.5 text-xs">
                       {task.assignee_names.join(', ') || 'Unassigned'}
                     </td>
-                    <td className="border-b border-slate-100 px-3 py-2.5 text-xs text-slate-600">
+                    <td className="border-b border-slate-100 px-3 py-2.5 text-xs">
                       {formatDate(task.due_date)}
                     </td>
-                    <td
-                      className={`border-b border-slate-100 px-3 py-2.5 text-xs ${
-                        late > 0 ? 'font-semibold text-rose-700' : 'text-slate-500'
-                      }`}
-                    >
+                    <td className="border-b border-slate-100 px-3 py-2.5 text-xs">
                       {lateLabel}
                     </td>
                     <td className="border-b border-slate-100 px-3 py-2.5 text-xs text-slate-600">
                       {formatDate(task.updated_at)}
                     </td>
-                    <td className="border-b border-slate-100 px-3 py-2.5 text-xs text-slate-600">
+                    <td className="border-b border-slate-100 px-3 py-2.5 text-xs">
                       {task.estimate_hours > 0 ? `${task.estimate_hours}h` : '—'}
                     </td>
                   </tr>
@@ -121,12 +137,6 @@ export default function DrilldownModal({
               })}
             </tbody>
           </table>
-
-          {tasks.length > 500 && (
-            <div className="px-4 py-2 text-xs text-slate-400">
-              Showing first 500 of {tasks.length}. Export for all.
-            </div>
-          )}
         </div>
       </div>
     </div>

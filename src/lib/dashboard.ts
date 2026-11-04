@@ -385,8 +385,8 @@ export function filterTasksForStatus(
   );
 }
 
-export type HealthKey = 'action' | 'high' | 'healthy' | 'idle';
-export type HealthTone = 'rose' | 'amber' | 'emerald' | 'slate';
+export type HealthKey = 'action' | 'high' | 'healthy' | 'idle' | 'low';
+export type HealthTone = 'rose' | 'amber' | 'emerald' | 'slate' | 'blue';
 
 export interface AssigneePerformance {
   name: string;
@@ -401,6 +401,7 @@ export interface AssigneePerformance {
   todo: number;
   sprint: number;
   total: number;
+  totalEstimate: number;
   health: HealthKey;
   healthLabel: string;
   healthTone: HealthTone;
@@ -423,6 +424,27 @@ function healthFor(
   if (blocked > 0) return { health: 'action', healthLabel: 'Requires Action', healthTone: 'rose' };
   if (overdue > 6) return { health: 'high', healthLabel: 'High Workload', healthTone: 'amber' };
   return { health: 'healthy', healthLabel: 'Healthy Flow', healthTone: 'emerald' };
+}
+
+export interface PerformanceIndicator {
+  label: string;
+  tone: HealthTone;
+}
+
+export function computePerformanceIndicator(row: Pick<AssigneePerformance, 'pushed' | 'overduePastDue' | 'totalEstimate'>): PerformanceIndicator {
+  if (row.totalEstimate > 0 && row.totalEstimate < 8) {
+    return { label: 'Low Estimate', tone: 'blue' };
+  }
+  if (row.overduePastDue > row.pushed) {
+    return { label: 'Needs Speed Up', tone: 'blue' };
+  }
+  if (row.totalEstimate > 0 && row.totalEstimate >= 8 && row.pushed >= row.totalEstimate * 0.7) {
+    return { label: 'On Track / Healthy', tone: 'emerald' };
+  }
+  if (row.totalEstimate > 0 && row.totalEstimate >= 8 && row.pushed < row.totalEstimate * 0.5) {
+    return { label: 'Needs Improve Delivery', tone: 'amber' };
+  }
+  return { label: 'On Track', tone: 'slate' };
 }
 
 function tasksByAssignee(tasks: EnrichedTaskData[]): Map<string, EnrichedTaskData[]> {
@@ -477,6 +499,14 @@ export function computeAssigneePerformance(
     const total = sumDashboardCounts(counts);
     if (total === 0) return;
 
+    const totalEstimate = personTasks.reduce((sum, task) => {
+      const status = getDashboardStatus(task, mapping);
+      if (!status) return sum;
+      if (!summaryForTask(task, status, range, basis, modes)) return sum;
+      const value = Number(task.estimate_hours);
+      return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+    }, 0);
+
     const open = counts.todo + counts.in_progress;
     const health = healthFor(counts.blocked, open, total);
 
@@ -493,6 +523,7 @@ export function computeAssigneePerformance(
       todo: counts.todo,
       sprint: counts.current_sprint,
       total,
+      totalEstimate,
       ...health,
     });
   });

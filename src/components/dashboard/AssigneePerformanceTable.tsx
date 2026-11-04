@@ -2,6 +2,7 @@ import { Check, Clock, XCircle } from 'lucide-react';
 import {
   DASHBOARD_STATUS_META,
   DASHBOARD_STATUS_ORDER,
+  computePerformanceIndicator,
   type AssigneePerformance,
   type DashboardStatusModes,
   type HealthTone,
@@ -19,6 +20,7 @@ const HEALTH_CLASSES: Record<HealthTone, string> = {
   amber: 'border-amber-200 bg-amber-50 text-amber-600',
   emerald: 'border-emerald-200 bg-emerald-50 text-emerald-600',
   slate: 'border-slate-200 bg-slate-100 text-slate-500',
+  blue: 'border-blue-200 bg-blue-50 text-blue-600',
 };
 
 export default function AssigneePerformanceTable({
@@ -47,7 +49,7 @@ export default function AssigneePerformanceTable({
           <p className="mt-1 text-xs text-slate-500">
             Counts use <span className="font-semibold text-slate-700">{dateBasisLabel}</span> and each
             status&apos;s Period/All scope. Delivered plus open To-Do / In Progress risk are shown per
-            assignee.
+            assignee. Estimate performance indicators are computed automatically below.
           </p>
         </div>
 
@@ -70,57 +72,72 @@ export default function AssigneePerformanceTable({
             <tr>
               <th className="px-4 py-3">Assignee</th>
               <th className="px-3 py-3 text-center">Pushed/Live</th>
-              <th className="px-3 py-3 text-center">Overdue (In Progress + To-Do)</th>
+              <th className="px-3 py-3 text-center">Overdue</th>
               <th className="px-3 py-3 text-center">Blocked</th>
               <th className="px-3 py-3 text-center">Testing</th>
               <th className="px-4 py-3 text-right">Status Health</th>
+              <th className="px-3 py-3 text-center">Performance</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 font-medium">
-            {rows.map((row) => (
-              <tr key={row.name} className="transition-colors hover:bg-slate-50/80">
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-200 text-[10px] font-bold text-slate-700">
-                      {row.initials}
+            {rows.map((row) => {
+              const indicator = computePerformanceIndicator({
+                pushed: row.pushed,
+                overduePastDue: row.overduePastDue,
+                totalEstimate: row.totalEstimate,
+              });
+              return (
+                <tr key={row.name} className="transition-colors hover:bg-slate-50/80">
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <div className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border border-slate-300 bg-slate-200 text-[10px] font-bold text-slate-700">
+                        {row.initials}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="truncate font-bold text-slate-800">{row.name}</div>
+                        <div className="text-[10px] text-slate-400">{row.total} tasks in scope</div>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <div className="truncate font-bold text-slate-800">{row.name}</div>
-                      <div className="text-[10px] text-slate-400">{row.total} tasks in scope</div>
-                    </div>
-                  </div>
-                </td>
-                <td className="bg-emerald-50/30 px-3 py-3 text-center font-bold text-emerald-600">
-                  {row.pushed}
-                </td>
-                <td
-                  className="bg-amber-50/30 px-3 py-3 text-center font-bold text-amber-600"
-                  title={`${row.overduePastDue} past due · ${row.overdue} open in In Progress + To-Do`}
-                >
-                  {row.overdue}
-                  {row.overduePastDue > 0 && (
-                    <span className="ml-1 text-[10px] font-semibold text-amber-500">
-                      ({row.overduePastDue} late)
-                    </span>
-                  )}
-                </td>
-                <td className="bg-rose-50/30 px-3 py-3 text-center font-bold text-rose-600">
-                  {row.blocked}
-                </td>
-                <td className="px-3 py-3 text-center font-bold text-purple-600">{row.testing}</td>
-                <td className="px-4 py-3 text-right">
-                  <span
-                    className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${HEALTH_CLASSES[row.healthTone]}`}
+                  </td>
+                  <td className="bg-emerald-50/30 px-3 py-3 text-center font-bold text-emerald-600">
+                    {row.pushed}
+                  </td>
+                  <td
+                    className="bg-amber-50/30 px-3 py-3 text-center font-bold text-amber-600"
+                    title={`${row.overduePastDue} past due · ${row.overdue} open in In Progress + To-Do`}
                   >
-                    {row.healthLabel}
-                  </span>
-                </td>
-              </tr>
-            ))}
+                    {row.overdue}
+                    {row.overduePastDue > 0 && (
+                      <span className="ml-1 text-[10px] font-semibold text-amber-500">
+                        ({row.overduePastDue} late)
+                      </span>
+                    )}
+                  </td>
+                  <td className="bg-rose-50/30 px-3 py-3 text-center font-bold text-rose-600">
+                    {row.blocked}
+                  </td>
+                  <td className="px-3 py-3 text-center font-bold text-purple-600">{row.testing}</td>
+                  <td className="px-4 py-3 text-right">
+                    <span
+                      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${HEALTH_CLASSES[row.healthTone]}`}
+                    >
+                      {row.healthLabel}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 text-center">
+                    <span
+                      className={`inline-block rounded-full border px-2 py-0.5 text-[10px] font-bold ${HEALTH_CLASSES[indicator.tone]}`}
+                    >
+                      {indicator.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
 
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-400">
+                <td colSpan={7} className="px-4 py-8 text-center text-sm text-slate-400">
                   No assignee activity in the selected period.
                 </td>
               </tr>

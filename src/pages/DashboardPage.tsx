@@ -131,7 +131,7 @@ export default function DashboardPage({
   const [standupPerson, setStandupPerson] = useState(loadStandupPerson);
   const [doneLists, setDoneLists] = useState<string[]>(() => loadStandupSettings().doneLists);
   const [exportState, setExportState] = useState<ExportState | null>(null);
-  const [drilldown, setDrilldown] = useState<{ title: string; tasks: EnrichedTaskData[] } | null>(null);
+  const [drilldown, setDrilldown] = useState<{ title: string; tasks: EnrichedTaskData[]; assignee: string | null } | null>(null);
 
   const range = useMemo(
     () => getPeriodRange(period, customStart, customEnd, weekStart),
@@ -301,7 +301,7 @@ export default function DashboardPage({
     });
   };
 
-  const openStatusDrilldown = (status: DashboardStatus) => {
+  const openStatusDrilldown = (status: DashboardStatus, assignee: string | null = null) => {
     if (!canDrill) return;
     const entry = statusSummary[status];
     const scopeLabel = entry.mode === 'all' ? 'all time' : periodLabel;
@@ -315,12 +315,13 @@ export default function DashboardPage({
         dateBasis,
         statusModes
       ),
+      assignee,
     });
   };
 
-  const openTaskDrilldown = (title: string, drilldownTasks: EnrichedTaskData[]) => {
+  const openTaskDrilldown = (title: string, drilldownTasks: EnrichedTaskData[], assignee: string | null = null) => {
     if (!canDrill) return;
-    setDrilldown({ title, tasks: drilldownTasks });
+    setDrilldown({ title, tasks: drilldownTasks, assignee });
   };
 
   const openAllTestingTasks = () => {
@@ -340,6 +341,7 @@ export default function DashboardPage({
         dateBasis,
         statusModes
       ),
+      assignee: null,
     });
   };
 
@@ -390,7 +392,7 @@ export default function DashboardPage({
         </section>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="space-y-6 lg:col-span-2">
+          <div className="space-y-6 lg:col-span-3">
             <AssigneePerformanceTable
               rows={assigneeRows}
               periodLabel={periodLabel}
@@ -404,7 +406,7 @@ export default function DashboardPage({
             />
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-6 lg:col-span-3">
             <TestingBoard
               tasks={dashboardTasks}
               transitions={transitions}
@@ -463,6 +465,8 @@ export default function DashboardPage({
           mapping={mapping}
           onClose={() => setDrilldown(null)}
           onExport={handleDrilldownExport}
+          assignee={drilldown.assignee}
+          onAssigneeChange={(a) => setDrilldown((d) => d ? { ...d, assignee: a } : null)}
         />
       )}
 
