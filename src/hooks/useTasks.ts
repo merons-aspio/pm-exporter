@@ -1,73 +1,54 @@
-import { useEffect, useState } from 'react';
-import { fetchProjectTasksRich } from '../services/hubstaff';
+import { useCallback, useEffect, useState } from 'react';
 import type { EnrichedTaskData } from '../services/hubstaff';
+import { loadArchiveManifest, loadArchiveProjectTasks } from '../lib/archive';
 
-// Marketplace 2.0.0 on the tasks.hubstaff.com service (NOT the v2 API id 3685595)
-const MARKETPLACE_PROJECT_ID = 1110971;
-const CACHE_KEY = 'hubstaff_mkt_rich_m2';
-const LAST_SYNC_KEY = 'hubstaff_mkt_last_sync_v1';
-
+/**
+ * Frozen archive loader for the default dashboard project (Marketplace 2.0.0).
+ * It reads static JSON from /archive and never calls Hubstaff or /api/auth.
+ * Deleted tasks are archived too, but the dashboard keeps its original scope:
+ * current tasks only. The Archive page is the lifetime view.
+ */
 export function useTasks() {
   const [tasks, setTasks] = useState<EnrichedTaskData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(null);
+  const [projectName, setProjectName] = useState<string | null>(null);
 
-  const load = async (forceRefresh: boolean) => {
+  const load = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
 
     try {
-      if (!forceRefresh) {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) {
-          try {
-            const parsed: unknown = JSON.parse(cached);
-            if (Array.isArray(parsed)) {
-              setTasks(parsed as EnrichedTaskData[]);
-              setLastSyncedAt(localStorage.getItem(LAST_SYNC_KEY));
-              setLoading(false);
-              return;
-            }
-          } catch (parseError) {
-            console.warn('Ignoring corrupt task cache.', parseError);
-          }
-        }
-      }
+      const manifest = await loadArchiveManifest(force);
+      const projectId = manifest.defaultProjectId;
+      if (!projectId) throw new Error('No accessible project was found in the archive manifest.');
 
-      const richTasks = await fetchProjectTasksRich(MARKETPLACE_PROJECT_ID);
-      const now = new Date().toISOString();
-
-      setTasks(richTasks);
-      setLastSyncedAt(now);
-
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify(richTasks));
-      } catch (cacheError) {
-        // 2,195 tasks with descriptions can exceed the ~5 MB localStorage quota
-        console.warn('Task cache exceeds localStorage quota; keeping data in memory only.', cacheError);
-      }
-
-      try {
-        localStorage.setItem(LAST_SYNC_KEY, now);
-      } catch (syncError) {
-        console.warn('Could not persist the last-sync timestamp.', syncError);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error fetching Marketplace tasks');
+      const allTasks = await loadArchiveProjectTasks(projectId, manifest, force);
+      setTasks(allTasks.filter((task) => !task.removed));
+      setLastSyncedAt(manifest.capturedAt);
+      setProjectName(
+        manifest.projects.find((project) => project.id === projectId)?.name ?? null
+      );
+    } catch (caught) {
+      setError(String((caught as Error).message || caught));
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    void load(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sync = () => {
-    void load(true);
-  };
+  useEffect(() => {
+    void load();
+  }, [load]);
 
-  return { tasks, loading, error, lastSyncedAt, sync };
+  return {
+    tasks,
+    loading,
+    error,
+    lastSyncedAt,
+    projectName,
+    sync: () => {
+      void load(true);
+    },
+  };
 }

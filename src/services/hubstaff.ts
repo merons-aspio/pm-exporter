@@ -4,7 +4,7 @@ let currentAccessToken = import.meta.env.VITE_HUBSTAFF_TOKEN || '';
 let currentRefreshToken = import.meta.env.VITE_HUBSTAFF_REFRESH_TOKEN || '';
 
 /** Load tokens from session endpoint or localStorage, overriding hardcoded env */
-async function loadTokensFromSession(): Promise<boolean> {
+export async function loadTokensFromSession(): Promise<boolean> {
   try {
     // Try server session endpoint first
     const res = await fetch('/api/auth/session');
@@ -81,8 +81,9 @@ const getHeaders = () => ({
   'Content-Type': 'application/json',
 });
 
-// Load from session/store first, then attempt refresh
-loadTokensFromSession().catch(() => {});
+// The live API client is intentionally dormant in archive mode. Tokens are
+// loaded only if live code explicitly calls `loadTokensFromSession`; nothing in
+// the UI does, so the static archive app makes zero Hubstaff/auth requests.
 
 /**
  * Wrapper for fetch that automatically refreshes token on 401 responses
@@ -159,11 +160,16 @@ export interface HubstaffTaskRaw {
   assigned_to_id?: number | null;
   assignee_ids?: number[];
   follower_ids?: number[];
+  mention_ids?: number[];
   label_ids?: number[];
   list_id?: number;
   list?: HubstaffListInfo;
   status?: string;
   done?: boolean;
+  removed?: boolean;
+  removed_at?: string | null;
+  deleted?: boolean;
+  deleted_at?: string | null;
   start_on?: string | null;
   due_on?: string | null;
   due_at?: string | null;
@@ -197,6 +203,11 @@ export interface EnrichedTaskData {
   done_at: string | null;
   created_at: string;
   updated_at: string;
+  removed?: boolean;
+  removed_at?: string | null;
+  project_id?: number;
+  project_name?: string;
+  project_folder?: string | null;
 }
 
 async function fetchOrgId(): Promise<number | null> {

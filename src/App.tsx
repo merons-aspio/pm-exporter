@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Download, Kanban, RefreshCw } from 'lucide-react';
+import { Archive, Download, Kanban } from 'lucide-react';
 import { useTasks } from './hooks/useTasks';
 import { useStatusSettings } from './hooks/useStatusSettings';
 import { useToast } from './components/ToastProvider';
@@ -21,21 +21,21 @@ import type {
 } from './lib/dashboard';
 import TasksPage from './pages/TasksPage';
 import DashboardPage from './pages/DashboardPage';
-import LoginPage from './pages/LoginPage';
+import ArchivePage from './pages/ArchivePage';
 import ExportStudioModal from './components/ExportStudioModal';
 import type { ExportScope } from './components/ExportStudioModal';
 
-type View = 'tasks' | 'dashboard' | 'login';
+type View = 'tasks' | 'dashboard' | 'archive';
 
 function getViewFromHash(): View {
   const hash = window.location.hash.replace('#/', '');
   if (hash === 'tasks') return 'tasks';
-  if (hash === 'login') return 'login';
+  if (hash === 'archive') return 'archive';
   return 'dashboard';
 }
 
 export default function App() {
-  const { tasks, loading, error, lastSyncedAt, sync } = useTasks();
+  const { tasks, loading, error, lastSyncedAt, projectName, sync } = useTasks();
   const {
     mapping,
     overrides,
@@ -113,18 +113,15 @@ export default function App() {
   };
 
   const navigate = (next: View) => {
-    window.location.hash = next === 'dashboard' ? '#/dashboard' : next === 'login' ? '#/login' : '#/tasks';
+    window.location.hash =
+      next === 'dashboard' ? '#/dashboard' : next === 'archive' ? '#/archive' : '#/tasks';
     setView(next);
   };
 
   const openExportStudio = () => {
-    setDefaultExportScope(view === 'tasks' ? 'tasks' : 'dashboard');
+    setDefaultExportScope(view === 'tasks' || view === 'archive' ? 'tasks' : 'dashboard');
     setExportOpen(true);
   };
-
-  if (view === 'login') {
-    return <LoginPage />;
-  }
 
   const firstLoad = loading && tasks.length === 0;
 
@@ -144,13 +141,14 @@ export default function App() {
               <h1 className="text-lg font-bold leading-tight text-slate-900">Hubstaff PM Simplifier</h1>
               <p className="text-xs font-medium text-slate-500">
                 Clean &amp; Focused PM Analytics
+                {projectName ? ` · ${projectName}` : ''}
                 {!firstLoad ? ` · ${tasks.length} tasks` : ''}
               </p>
             </div>
           </button>
 
           <nav className="order-3 flex w-full rounded-xl border border-slate-200/60 bg-slate-100 p-1 text-sm font-medium md:order-none md:w-auto">
-            {(['dashboard', 'tasks'] as const).map((item) => {
+            {(['dashboard', 'tasks', 'archive'] as const).map((item) => {
               const active = view === item;
               return (
                 <button
@@ -163,27 +161,29 @@ export default function App() {
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  {item === 'dashboard' ? 'Dashboard' : 'Tasks Matrix'}
+                  {item === 'dashboard' ? 'Dashboard' : item === 'tasks' ? 'Tasks Matrix' : 'Lifetime Archive'}
                 </button>
               );
             })}
           </nav>
 
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={sync}
-              disabled={loading}
-              title={lastSyncedAt ? `Last synced ${formatDateTime(lastSyncedAt)}` : 'Sync tasks'}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-all hover:bg-slate-50 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
-              aria-label="Sync tasks"
+            <div
+              className="hidden items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[0.68rem] font-semibold text-emerald-700 sm:flex"
+              title={
+                lastSyncedAt
+                  ? `Static archive captured ${formatDateTime(lastSyncedAt)} · no live sync`
+                  : 'Static read-only archive'
+              }
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? 'spin' : ''}`} />
-            </button>
+              <Archive className="h-3.5 w-3.5" />
+              <span>Read-only</span>
+            </div>
             <button
               type="button"
               onClick={openExportStudio}
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-md shadow-indigo-100 transition-all hover:bg-indigo-700 active:scale-95"
+              style={view === 'archive' ? { display: 'none' } : undefined}
             >
               <Download className="h-4 w-4" />
               <span>Export Data</span>
@@ -202,7 +202,7 @@ export default function App() {
             onClick={sync}
             className="rounded border border-rose-300 bg-white px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
           >
-            Retry
+            Reload archive
           </button>
         </div>
       )}
@@ -210,7 +210,7 @@ export default function App() {
       {firstLoad ? (
         <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
           <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500 shadow-sm">
-            Loading Marketplace 2.0.0 tasks…
+            Loading archived Marketplace tasks…
           </div>
         </main>
       ) : view === 'tasks' ? (
@@ -223,6 +223,8 @@ export default function App() {
           </div>
           <TasksPage tasks={tasks} mapping={mapping} overrides={overrides} onOverride={setOverride} />
         </main>
+      ) : view === 'archive' ? (
+        <ArchivePage mapping={mapping} overrides={overrides} />
       ) : (
         <DashboardPage
           tasks={tasks}
@@ -231,8 +233,6 @@ export default function App() {
           snapshots={snapshots}
           transitions={transitions}
           lastSyncedAt={lastSyncedAt}
-          syncing={loading}
-          onSync={sync}
           onMappingChange={updateMapping}
           onSetMappingDefault={setAsDefault}
           onResetMappingToDefault={resetMappingToDefault}
@@ -258,8 +258,9 @@ export default function App() {
       )}
 
       <footer className="mx-auto w-full max-w-7xl px-4 pb-6 pt-2 text-[11px] text-slate-400 sm:px-6 lg:px-8">
-        Status mappings and task overrides are saved locally. Daily snapshots are captured on every
-        load/sync and kept for 90 days; past days without a snapshot are shown as approximate.
+        Read-only static archive. Status mappings and task overrides stay in local storage. Daily snapshots are
+        captured from archived data and kept indefinitely; use Lifetime Archive → History to download or import
+        your existing browser history.
       </footer>
 
       <ExportStudioModal

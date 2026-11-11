@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { Check, Clipboard, Download, Info, RefreshCw } from 'lucide-react';
+import { Check, Clipboard, Download, Info } from 'lucide-react';
 import type { EnrichedTaskData } from '../services/hubstaff';
 import { formatDate, formatDateTime } from '../lib/dates';
 import { DEFAULT_DONE_LISTS, buildStandupSummary, getMovedBreakdown } from '../lib/standup';
@@ -17,8 +17,6 @@ interface StandupSectionProps {
   onDrilldown: (title: string, tasks: EnrichedTaskData[]) => void;
   onExport: () => void;
   lastSyncedAt: string | null;
-  onSync: () => void;
-  syncing: boolean;
 }
 
 const miniTh: CSSProperties = {
@@ -308,8 +306,6 @@ export default function StandupSection({
   onDrilldown,
   onExport,
   lastSyncedAt,
-  onSync,
-  syncing,
 }: StandupSectionProps) {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle');
 
@@ -452,12 +448,9 @@ export default function StandupSection({
         </details>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-            {lastSyncedAt ? `Last sync ${formatDateTime(lastSyncedAt)}` : 'Not synced yet'}
+          <span style={{ fontSize: '0.7rem', color: '#047857', backgroundColor: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 999, padding: '0.25rem 0.55rem', fontWeight: 600 }}>
+            {lastSyncedAt ? `Archived ${formatDateTime(lastSyncedAt)} · read-only` : 'Read-only archive'}
           </span>
-          <button onClick={onSync} disabled={syncing} style={{ ...controlButtonStyle, opacity: syncing ? 0.6 : 1 }}>
-            <RefreshCw size={13} /> {syncing ? 'Syncing…' : 'Sync now'}
-          </button>
         </div>
       </div>
 

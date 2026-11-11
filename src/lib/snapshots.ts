@@ -1,10 +1,9 @@
 import type { EnrichedTaskData } from '../services/hubstaff';
 import { emptyBucketCounts, getEffectiveBucket } from './status';
 import type { Bucket, StatusMapping, StatusOverrides } from './status';
-import { endOfDayMs, parseDate, toDateKey, todayKey } from './dates';
+import { endOfDayMs, parseDate, todayKey } from './dates';
 
 const SNAPSHOTS_KEY = 'hubstaff_snapshots_v1';
-const MAX_SNAPSHOT_DAYS = 90;
 
 export type BoardSource = 'live' | 'snapshot' | 'approximate';
 
@@ -86,19 +85,6 @@ function saveSnapshots(store: SnapshotStore) {
   }
 }
 
-function prune(store: SnapshotStore): SnapshotStore {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - MAX_SNAPSHOT_DAYS);
-  const cutoffKey = toDateKey(cutoff);
-  const pruned: SnapshotStore = {};
-
-  Object.entries(store).forEach(([date, snapshot]) => {
-    if (date >= cutoffKey) pruned[date] = snapshot;
-  });
-
-  return pruned;
-}
-
 function buildLiveBoard(
   tasks: EnrichedTaskData[],
   mapping: StatusMapping,
@@ -138,15 +124,15 @@ function buildLiveBoard(
 }
 
 /**
- * Capture (or refresh) today's aggregate snapshot. Only counts are stored so
- * 90 days fits comfortably in localStorage next to the task cache.
+ * Capture (or refresh) today's aggregate snapshot. Snapshots are kept for the
+ * lifetime of the archive; nothing is pruned automatically.
  */
 export function captureSnapshot(
   tasks: EnrichedTaskData[],
   mapping: StatusMapping,
   overrides: StatusOverrides
 ): SnapshotStore {
-  const store = prune(loadSnapshots());
+  const store = loadSnapshots();
   const date = todayKey();
   const live = buildLiveBoard(tasks, mapping, overrides, date, 'live');
 

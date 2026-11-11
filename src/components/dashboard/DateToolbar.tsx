@@ -308,7 +308,7 @@ export default function DateToolbar({
         Board as of {boardDate}
         {source === 'approximate' &&
           ' · reconstructed from tasks created by this date using their current list/status.'}
-        {source === 'live' && ' · live from the current board.'}
+        {source === 'live' && ' · current board state captured in the archive.'}
         {source === 'snapshot' &&
           ' · historical aggregates remain in Detailed breakdown; dashboard status counts use current tasks and the selected date basis.'}
       </div>

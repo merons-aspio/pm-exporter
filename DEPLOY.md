@@ -1,8 +1,8 @@
 # Deploying to Vercel
 
-The app is a Vite SPA with serverless OAuth functions (`api/`) and an Edge
-middleware access gate (`middleware.ts`). Tokens are stored in HttpOnly cookies,
-so no database is required.
+The app is a Vite SPA that serves a frozen, read-only archive from
+`public/archive/`. At runtime it makes no Hubstaff or OAuth requests. The Edge
+middleware access gate (`middleware.ts`) still protects the site with Basic Auth.
 
 ## 1. Import the repository
 
@@ -10,46 +10,48 @@ so no database is required.
 2. Framework preset: **Vite** (auto-detected).
 3. Build command: `npm run build` · Output directory: `dist` (already set in `vercel.json`).
 
+The archive JSON is committed under `public/archive/`; Vite copies it into
+`dist/archive/` during the build.
+
 ## 2. Configure environment variables
 
-Add these in **Project → Settings → Environment Variables** (Production and Preview):
+The only required runtime variable is the Basic Auth passphrase:
 
 | Variable | Value |
 | --- | --- |
-| `HUBSTAFF_CLIENT_ID` | Your Hubstaff OAuth app client ID |
-| `HUBSTAFF_CLIENT_SECRET` | Your Hubstaff OAuth app client secret |
-| `HUBSTAFF_REDIRECT_URI` | `https://<your-project>.vercel.app/api/auth/callback/hubstaff` |
 | `APP_SECRET_PASSPHRASE` | The password for the Basic Auth gate (username: `hubstaff`) |
 
-`VITE_HUBSTAFF_TOKEN` / `VITE_HUBSTAFF_REFRESH_TOKEN` are **optional** and only
-used as a fallback. Normally the OAuth flow supplies tokens.
+`HUBSTAFF_CLIENT_ID` / `HUBSTAFF_CLIENT_SECRET` are only used locally by the
+one-time `scripts/export-hubstaff-archive.mjs` exporter. The deployed app does
+not need them.
 
 > Do **not** commit `.env`, `.env.local`, or `.hubstaff_session.json`. They are
 > ignored by `.gitignore`.
 
-## 3. Update the Hubstaff OAuth application
-
-In your Hubstaff OAuth app settings, add the production redirect URI:
-
-```
-https://<your-project>.vercel.app/api/auth/callback/hubstaff
-```
-
-Keep the local one for development:
-
-```
-http://localhost:3000/api/auth/callback/hubstaff
-```
-
-## 4. Routes
+## 3. Routes
 
 | Route | Purpose |
 | --- | --- |
 | `/` (all pages) | Protected by Basic Auth (`APP_SECRET_PASSPHRASE`) |
-| `/api/auth/hubstaff` | Redirects to Hubstaff authorization |
-| `/api/auth/callback/hubstaff` | Exchanges code → tokens, sets HttpOnly cookies |
-| `/api/auth/session` | Returns tokens from cookies to the frontend |
-| `/api/auth/refresh` | Rotates tokens server-side (client secret stays on server) |
+| `/#/dashboard` | Frozen Marketplace dashboard |
+| `/#/tasks` | Frozen Marketplace task matrix |
+| `/#/archive` | Lifetime read-only archive |
+| `/archive/*` | Static archive JSON (excluded from the SPA rewrite) |
+| `/api/auth/*` | Dormant OAuth handlers; not used by the archive UI |
+
+## 4. Updating the archive
+
+Re-run the exporter locally, then commit the changed files in
+`public/archive/` and redeploy:
+
+```bash
+npm run archive:core
+npm run archive:deep
+npm run build
+```
+
+The deep pass is resumable and can be re-run safely. Projects the token cannot
+read are listed as inaccessible in `public/archive/manifest.json`.
 
 ## 5. Local development
 
@@ -57,7 +59,6 @@ http://localhost:3000/api/auth/callback/hubstaff
 npm run dev
 ```
 
-The Vite dev server runs the same handlers from `api/_lib.ts`, so behaviour
-matches production. Open <http://localhost:3000>, authenticate with the Basic
-Auth prompt (username `hubstaff`, password = `APP_SECRET_PASSPHRASE`), then click
-**Log in with Hubstaff**.
+The Vite dev server serves `public/archive` directly. Open
+<http://localhost:5173>, authenticate with the Basic Auth prompt (username
+`hubstaff`, password = `APP_SECRET_PASSPHRASE`). No Hubstaff login is required.

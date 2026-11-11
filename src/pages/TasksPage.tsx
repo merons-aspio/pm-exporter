@@ -28,7 +28,14 @@ interface TasksPageProps {
   tasks: EnrichedTaskData[];
   mapping: StatusMapping;
   overrides: StatusOverrides;
-  onOverride: (taskId: number, bucket: Bucket | null) => void;
+  onOverride?: (taskId: number, bucket: Bucket | null) => void;
+  title?: string;
+  description?: string;
+  exportBaseName?: string;
+  showProject?: boolean;
+  showRemoved?: boolean;
+  readOnly?: boolean;
+  onTaskClick?: (task: EnrichedTaskData) => void;
 }
 
 const exportButtonStyle: CSSProperties = {
@@ -63,7 +70,19 @@ function preview(text: string, max = 90): string {
   return singleLine.length > max ? `${singleLine.slice(0, max)}…` : singleLine;
 }
 
-export default function TasksPage({ tasks, mapping, overrides, onOverride }: TasksPageProps) {
+export default function TasksPage({
+  tasks,
+  mapping,
+  overrides,
+  onOverride,
+  title = 'Task Explorer',
+  description,
+  exportBaseName = 'marketplace-tasks',
+  showProject = false,
+  showRemoved = false,
+  readOnly = false,
+  onTaskClick,
+}: TasksPageProps) {
   // --- Filters ---
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedBoardStatuses, setSelectedBoardStatuses] = useState<string[]>([]);
@@ -78,6 +97,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
   const [estimateMin, setEstimateMin] = useState('');
   const [estimateMax, setEstimateMax] = useState('');
   const [hasDescription, setHasDescription] = useState(false);
+  const [recordState, setRecordState] = useState<'all' | 'active' | 'removed'>('all');
 
   // --- Sorting / pagination ---
   const [sortKey, setSortKey] = useState<SortKey>('updated_at');
@@ -160,6 +180,8 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
     return tasks.filter((task) => {
       const effectiveBucket = getEffectiveBucket(task, mapping, overrides);
 
+      if (showRemoved && recordState === 'active' && task.removed) return false;
+      if (showRemoved && recordState === 'removed' && !task.removed) return false;
       if (selectedBoardStatuses.length > 0 && !selectedBoardStatuses.includes(task.board_status)) return false;
       if (selectedBuckets.length > 0 && !selectedBuckets.includes(effectiveBucket)) return false;
       if (selectedSystemStatuses.length > 0 && !selectedSystemStatuses.includes(task.system_status)) return false;
@@ -226,6 +248,8 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
     hasDescription,
     mapping,
     overrides,
+    showRemoved,
+    recordState,
   ]);
 
   // --- Sorting ---
@@ -287,6 +311,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
     sortKey,
     sortDir,
     pageSize,
+    recordState,
   ]);
 
   const handleSort = (key: SortKey) => {
@@ -312,6 +337,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
     setEstimateMin('');
     setEstimateMax('');
     setHasDescription(false);
+    setRecordState('all');
   };
 
   const activeFilterCount = [
@@ -324,6 +350,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
     startDate !== '' || endDate !== '',
     estimateMin !== '' || estimateMax !== '',
     hasDescription,
+    showRemoved && recordState !== 'all',
   ].filter(Boolean).length;
 
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -343,6 +370,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
   );
 
   const noResults = sortedTasks.length === 0;
+  const columnCount = 14 + (showProject ? 1 : 0);
 
   return (
     <div>
@@ -357,9 +385,11 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
         }}
       >
         <div>
-          <h2 style={{ margin: 0, fontSize: '1.15rem', color: '#0f172a' }}>Task Explorer</h2>
+          <h2 style={{ margin: 0, fontSize: '1.15rem', color: '#0f172a' }}>{title}</h2>
           <p style={{ margin: '0.2rem 0 0', fontSize: '0.82rem', color: '#64748b' }}>
-            {tasks.length} tasks · {sortedTasks.length} matching · status overrides feed the dashboard
+            {description ? `${description} · ` : ''}
+            {tasks.length} tasks · {sortedTasks.length} matching
+            {readOnly ? ' · read-only archive' : ' · status overrides feed the dashboard'}
           </p>
         </div>
 
@@ -459,6 +489,20 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
               onChange={setSelectedSystemStatuses}
             />
           </Field>
+
+          {showRemoved && (
+            <Field label="RECORD STATE">
+              <select
+                value={recordState}
+                onChange={(event) => setRecordState(event.target.value as 'all' | 'active' | 'removed')}
+                style={selectStyle}
+              >
+                <option value="all">All records</option>
+                <option value="active">Active only</option>
+                <option value="removed">Removed only</option>
+              </select>
+            </Field>
+          )}
 
           <Field label="DUE STATUS">
             <select
@@ -584,7 +628,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
           <table
             style={{
               width: '100%',
-              minWidth: 2150,
+              minWidth: showProject ? 2350 : 2150,
               borderCollapse: 'separate',
               borderSpacing: 0,
               textAlign: 'left',
@@ -593,6 +637,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
             <thead>
               <tr>
                 {renderSortHeader('ID', 'id', '80px')}
+                {showProject && <th style={{ ...thStyle, width: '190px' }}>Project</th>}
                 {renderSortHeader('Task Title', 'subject', '320px')}
                 {renderSortHeader('Board Status', 'board_status', '150px')}
                 <th style={{ ...thStyle, width: '170px' }}>Status</th>
@@ -612,7 +657,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
             <tbody>
               {visibleTasks.length === 0 ? (
                 <tr>
-                  <td colSpan={14} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8' }}>
+                  <td colSpan={columnCount} style={{ padding: '2.5rem', textAlign: 'center', color: '#94a3b8' }}>
                     No tasks match the active filters.
                   </td>
                 </tr>
@@ -626,7 +671,36 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
                     <tr key={task.id}>
                       <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#64748b' }}>#{task.id}</td>
 
-                      <td style={{ ...tdStyle, fontWeight: 500, color: '#1e293b' }}>{task.subject}</td>
+                      {showProject && (
+                        <td style={{ ...tdStyle, color: '#475569', whiteSpace: 'nowrap' }}>
+                          {task.project_name || '—'}
+                        </td>
+                      )}
+
+                      <td style={tdStyle}>
+                        {onTaskClick ? (
+                          <button
+                            type="button"
+                            onClick={() => onTaskClick(task)}
+                            title="Open archived task details"
+                            style={{
+                              border: 'none',
+                              background: 'none',
+                              padding: 0,
+                              textAlign: 'left',
+                              fontWeight: 600,
+                              color: '#1d4ed8',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              textDecorationColor: '#bfdbfe',
+                            }}
+                          >
+                            {task.subject}
+                          </button>
+                        ) : (
+                          <span style={{ fontWeight: 500, color: '#1e293b' }}>{task.subject}</span>
+                        )}
+                      </td>
 
                       <td style={tdStyle}>
                         <span
@@ -648,46 +722,67 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
                       <td style={tdStyle}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
                           <StatusBadge bucket={effectiveBucket} />
-                          <select
-                            value={overrides[String(task.id)] ?? ''}
-                            onChange={(event) =>
-                              onOverride(task.id, event.target.value === '' ? null : (event.target.value as Bucket))
-                            }
-                            title="Override the list-based status for this task"
-                            style={{
-                              fontSize: '0.7rem',
-                              padding: '0.15rem 0.2rem',
-                              borderRadius: 4,
-                              border: '1px solid #e2e8f0',
-                              backgroundColor: '#fff',
-                              color: '#475569',
-                              maxWidth: 118,
-                            }}
-                          >
-                            <option value="">Auto · {BUCKET_META[listBucket].label}</option>
-                            {BUCKET_ORDER.map((bucket) => (
-                              <option key={bucket} value={bucket}>
-                                {BUCKET_META[bucket].label}
-                              </option>
-                            ))}
-                          </select>
+                          {!readOnly && onOverride && (
+                            <select
+                              value={overrides[String(task.id)] ?? ''}
+                              onChange={(event) =>
+                                onOverride(task.id, event.target.value === '' ? null : (event.target.value as Bucket))
+                              }
+                              title="Override the list-based status for this task"
+                              style={{
+                                fontSize: '0.7rem',
+                                padding: '0.15rem 0.2rem',
+                                borderRadius: 4,
+                                border: '1px solid #e2e8f0',
+                                backgroundColor: '#fff',
+                                color: '#475569',
+                                maxWidth: 118,
+                              }}
+                            >
+                              <option value="">Auto · {BUCKET_META[listBucket].label}</option>
+                              {BUCKET_ORDER.map((bucket) => (
+                                <option key={bucket} value={bucket}>
+                                  {BUCKET_META[bucket].label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                       </td>
 
                       <td style={tdStyle}>
-                        <span
-                          style={{
-                            display: 'inline-block',
-                            padding: '0.15rem 0.5rem',
-                            borderRadius: 10,
-                            fontSize: '0.72rem',
-                            fontWeight: 600,
-                            backgroundColor: task.done ? '#dcfce7' : '#f1f5f9',
-                            color: task.done ? '#15803d' : '#64748b',
-                          }}
-                        >
-                          {task.system_status}
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '0.15rem 0.5rem',
+                              borderRadius: 10,
+                              fontSize: '0.72rem',
+                              fontWeight: 600,
+                              backgroundColor: task.done ? '#dcfce7' : '#f1f5f9',
+                              color: task.done ? '#15803d' : '#64748b',
+                            }}
+                          >
+                            {task.system_status}
+                          </span>
+                          {task.removed && (
+                            <span
+                              title={task.removed_at ? `Removed ${formatDate(task.removed_at)}` : 'Removed from Hubstaff'}
+                              style={{
+                                display: 'inline-block',
+                                padding: '0.15rem 0.5rem',
+                                borderRadius: 10,
+                                fontSize: '0.7rem',
+                                fontWeight: 700,
+                                backgroundColor: '#fee2e2',
+                                color: '#b91c1c',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              Removed
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       <td style={tdStyle}>
@@ -864,7 +959,7 @@ export default function TasksPage({ tasks, mapping, overrides, onOverride }: Tas
         allRows={allTasksRows}
         filteredLabel="Filtered rows"
         allLabel="All tasks"
-        baseName={`marketplace-tasks_${fileTimestamp()}`}
+        baseName={`${exportBaseName}_${fileTimestamp()}`}
         defaultPreset="everything"
       />
     </div>

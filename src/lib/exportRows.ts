@@ -6,10 +6,12 @@ import type { Bucket, StatusMapping, StatusOverrides } from './status';
 function buildExportRow(task: EnrichedTaskData, bucket: Bucket): Record<string, unknown> {
   return {
     ID: task.id,
+    Project: task.project_name || '',
     Title: task.subject,
     'Board Status': task.board_status,
     Status: BUCKET_META[bucket].label,
     'System Status': task.system_status,
+    Removed: task.removed ? 'yes' : 'no',
     Assignees: task.assignee_names.join('; ') || 'Unassigned',
     Labels: task.label_names.join('; '),
     'Estimate Hours': task.estimate_hours,

@@ -47,8 +47,6 @@ interface DashboardPageProps {
   snapshots: SnapshotStore;
   transitions: ListTransition[];
   lastSyncedAt: string | null;
-  syncing: boolean;
-  onSync: () => void;
   onMappingChange: (list: string, bucket: Bucket) => void;
   onSetMappingDefault: () => void;
   onResetMappingToDefault: () => void;
@@ -106,8 +104,6 @@ export default function DashboardPage({
   snapshots,
   transitions,
   lastSyncedAt,
-  syncing,
-  onSync,
   onMappingChange,
   onSetMappingDefault,
   onResetMappingToDefault,
@@ -453,8 +449,6 @@ export default function DashboardPage({
           listOptions={listOptions}
           onStandupExport={handleStandupExport}
           lastSyncedAt={lastSyncedAt}
-          syncing={syncing}
-          onSync={onSync}
         />
       </main>
 

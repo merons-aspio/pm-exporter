@@ -2,8 +2,10 @@
 
 ## Overview
 
-A Vite + React + TypeScript application that exports Hubstaff project management data. Features include:
+A Vite + React + TypeScript application that reads a frozen, read-only Hubstaff
+archive. It no longer syncs with Hubstaff at runtime. Features include:
 
+- **Lifetime Archive**: every task the export token could read, including deleted tasks, across all accessible projects, with project/removed filters, full task detail, and CSV/JSON/TXT export.
 - **Tasks Explorer**: Filterable, sortable, paginated task list with horizontal scroll.
 - **Dashboard**: 
   - KPI cards with deltas
@@ -27,6 +29,7 @@ A Vite + React + TypeScript application that exports Hubstaff project management
 - **Export**: Standup CSV/JSON/TXT and full dashboard export options.
 - **Status transition tracking**: Logs actual list changes (not just edits) for accurate "moved on date" metrics.
 - **Status mapping config** saved as default for easy reuse.
+- **Static read-only archive**: all data is loaded from `public/archive`, so the deployed app makes no Hubstaff or auth requests.
 
 ## Features
 
@@ -37,6 +40,7 @@ A Vite + React + TypeScript application that exports Hubstaff project management
 - **Days overdue** and due date calculations.
 - **Status Mapping** panel with "Set as default" button for easier configuration.
 - **Status transition log** for accurate historical status changes.
+- **Local history download/import** on the archive page so snapshots, list moves, mappings, and overrides survive clearing browser storage.
 
 ## Prerequisites
 
@@ -47,12 +51,37 @@ A Vite + React + TypeScript application that exports Hubstaff project management
 
 1. Clone the repository
 2. Install dependencies: `npm install`
-3. Create a `.env.local` file with your Hubstaff API token:
-   ```
-   VITE_HUBSTAFF_TOKEN=your_token_here
-   ```
-4. Run the development server: `npm run dev`
-5. Open http://localhost:5173 in your browser
+3. Run the development server: `npm run dev`
+4. Open http://localhost:5173 in your browser
+
+No Hubstaff token is required to view the app. `public/archive` already
+contains the captured data. Tokens in `.env.local` are only needed to re-run the
+one-time exporter.
+
+## Re-running the archive export
+
+The exporter reads OAuth credentials from `.env.local` and writes static JSON to
+`public/archive/`. It never writes credentials into the archive.
+
+```bash
+npm run archive:core   # projects, lists, labels, members, all tasks (incl. removed)
+npm run archive:deep   # comments, checklists, attachments, time entries
+npm run archive:all    # both, core first
+```
+
+The deep pass is resumable: re-running skips tasks already captured. Use
+`node scripts/export-hubstaff-archive.mjs --deep --project <id>` to target one
+project (npm drops flags passed through `npm run`).
+
+> The Hubstaff API exposes attachment metadata only, not file contents.
+> Projects the export token cannot access are recorded in `manifest.json` as
+> inaccessible instead of blocking the export.
+
+The committed archive was captured with the available token: 36 organization
+projects were inventoried, 6 were readable (3,681 tasks, including 512 deleted
+tasks), and 30 returned `403 not_authorized`. The inaccessible projects are
+listed on the archive page and in the manifest. Re-run the exporter with an
+admin/OAuth token that can read them if those projects must be captured.
 
 ## Build
 
@@ -60,14 +89,16 @@ A Vite + React + TypeScript application that exports Hubstaff project management
 npm run build
 ```
 
-The build outputs to the `dist` directory.
+The build outputs to the `dist` directory. `public/archive` is copied into the
+build automatically.
 
 ## Usage
 
-- Navigate to `/tasks` for the task explorer.
-- Navigate to `/dashboard` for the dashboard with the standup section.
-- Use the **Export** button in the standup header or dashboard header to export data as CSV, JSON, or plain text (titles only).
-- Use the **Copy summary** button to copy a Slack-ready standup summary.
+- `#/dashboard` — frozen Marketplace 2.0.0 dashboard and standup view.
+- `#/tasks` — frozen Marketplace 2.0.0 task matrix.
+- `#/archive` — lifetime read-only archive across all accessible projects, including deleted tasks.
+- Use the **Export** button in the task matrix or archive page to download CSV, JSON, or plain text.
+- Use **History** / **Import history** on the archive page to back up or restore browser-local snapshots and transitions.
 
 ## License
 

@@ -231,7 +231,7 @@ export function StatusBadge({ bucket }: { bucket: Bucket }) {
 export function SourceBadge({ source }: { source: BoardSource }) {
   const meta =
     source === 'live'
-      ? { label: 'Live', bg: '#dcfce7', color: '#15803d' }
+      ? { label: 'Current', bg: '#dcfce7', color: '#15803d' }
       : source === 'snapshot'
         ? { label: 'Snapshot', bg: '#e0f2fe', color: '#0369a1' }
         : { label: '≈ Approximate', bg: '#fef3c7', color: '#b45309' };

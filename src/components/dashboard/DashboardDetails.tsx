@@ -36,8 +36,6 @@ interface DashboardDetailsProps {
   listOptions: Array<{ name: string; count: number }>;
   onStandupExport: () => void;
   lastSyncedAt: string | null;
-  syncing: boolean;
-  onSync: () => void;
 }
 
 const twoColumnStyle: CSSProperties = {
@@ -112,8 +110,6 @@ export default function DashboardDetails(props: DashboardDetailsProps) {
     listOptions,
     onStandupExport,
     lastSyncedAt,
-    syncing,
-    onSync,
   } = props;
 
   const matrixRows = useMemo(
@@ -184,14 +180,12 @@ export default function DashboardDetails(props: DashboardDetailsProps) {
           onDrilldown={onDrilldown}
           onExport={onStandupExport}
           lastSyncedAt={lastSyncedAt}
-          onSync={onSync}
-          syncing={syncing}
         />
 
         <div style={twoColumnStyle}>
           <SectionCard
             title="Today vs Yesterday"
-            subtitle={`${today} live · ${yesterday} ${
+            subtitle={`${today} current · ${yesterday} ${
               yesterdayBoard.source === 'snapshot' ? 'snapshot' : '≈ approximate'
             }`}
           >
@@ -409,7 +403,7 @@ export default function DashboardDetails(props: DashboardDetailsProps) {
         {dailyRows.length > 1 && (
           <SectionCard
             title="Daily Trend"
-            subtitle={`${range.start} → ${range.end} · created/completed/touched are exact; board cells are live/snapshot/≈`}
+            subtitle={`${range.start} → ${range.end} · created/completed/touched are exact; board cells are current/snapshot/≈`}
           >
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 900 }}>
