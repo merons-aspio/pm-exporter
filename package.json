@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "archive:core": "node scripts/export-hubstaff-archive.mjs --core",
     "archive:deep": "node scripts/export-hubstaff-archive.mjs --deep",
-    "archive:all": "node scripts/export-hubstaff-archive.mjs --all"
+    "archive:all": "node scripts/export-hubstaff-archive.mjs --all",
+    "archive:verify": "node scripts/verify-archive.mjs"
   },
   "devDependencies": {
     "@types/papaparse": "^5.5.2",

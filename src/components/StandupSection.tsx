@@ -399,7 +399,7 @@ export default function StandupSection({
           </summary>
           <div style={panelStyle}>
             <div style={{ fontSize: '0.7rem', color: '#64748b', lineHeight: 1.35, marginBottom: '0.4rem' }}>
-              A sync counts a task as moved when it enters one of these lists. Editing a task never counts.
+              An archive refresh counts a task as moved when it enters one of these lists. Editing a task never counts.
             </div>
             {doneListOptions.map((option) => (
               <label
@@ -512,7 +512,7 @@ export default function StandupSection({
         <span>
           {standup.firstTrackedAt
             ? `Move history starts ${formatDateTime(standup.firstTrackedAt)}. Earlier list changes cannot be reconstructed reliably.`
-            : 'Move history starts with the next sync. Only Completed tasks with a done_at timestamp can be backfilled.'}{' '}
+            : 'Move history starts with the next archive refresh. Only Completed tasks with a done_at timestamp can be backfilled.'}{' '}
           “Recent updates (unverified)” are tasks edited on this date; they are not counted as moved.
         </span>
       </div>

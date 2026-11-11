@@ -67,11 +67,17 @@ The exporter reads OAuth credentials from `.env.local` and writes static JSON to
 npm run archive:core   # projects, lists, labels, members, all tasks (incl. removed)
 npm run archive:deep   # comments, checklists, attachments, time entries
 npm run archive:all    # both, core first
+npm run archive:verify # check manifest totals, deep files and credential leaks
 ```
 
 The deep pass is resumable: re-running skips tasks already captured. Use
 `node scripts/export-hubstaff-archive.mjs --deep --project <id>` to target one
-project (npm drops flags passed through `npm run`).
+project (npm drops flags passed through `npm run`). Add `--retry-errors` to
+revisit tasks whose deep capture previously failed.
+
+The exporter throttles to ~85 requests/minute by default. Override it with
+`ARCHIVE_REQUEST_INTERVAL_MS` (milliseconds between request starts) if Hubstaff
+returns `429 rate_limit`; the script also honours `Retry-After` automatically.
 
 > The Hubstaff API exposes attachment metadata only, not file contents.
 > Projects the export token cannot access are recorded in `manifest.json` as

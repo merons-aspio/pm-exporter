@@ -24,7 +24,7 @@ const DEEP_DIR = path.join(ARCHIVE_DIR, 'deep');
 const MANIFEST_PATH = path.join(ARCHIVE_DIR, 'manifest.json');
 const TASKS_BASE = 'https://tasks.hubstaff.com/api/v1';
 const AUTH_BASE = 'https://account.hubstaff.com';
-const MIN_REQUEST_INTERVAL_MS = 800; // ~75 requests/minute, comfortably below the 120/min limit
+const MIN_REQUEST_INTERVAL_MS = Number(process.env.ARCHIVE_REQUEST_INTERVAL_MS) || 700; // ~85 requests/minute
 const DEEP_SAVE_EVERY = 20;
 
 const args = process.argv.slice(2);
@@ -130,6 +130,7 @@ async function refreshAccessToken() {
 
 let nextRequestAt = 0;
 let pauseUntil = 0;
+let loggedRateLimit = false;
 async function waitForRateSlot() {
   const now = Date.now();
   const startAt = Math.max(now, nextRequestAt, pauseUntil);
@@ -171,6 +172,15 @@ async function requestJson(pathname, { attempts = 5 } = {}) {
     // long 429 cooldown.
     const remaining = Number(response.headers.get('x-rate-limit-remaining'));
     const reset = Number(response.headers.get('x-rate-limit-reset'));
+    const limit = response.headers.get('x-rate-limit-limit');
+    if (!loggedRateLimit && response.ok) {
+      loggedRateLimit = true;
+      const resetAt = Number.isFinite(reset) && reset > 0 ? (reset > 1e12 ? reset : reset * 1000) : null;
+      console.log(
+        `Rate limit: ${Number.isFinite(remaining) ? remaining : '?'} of ${limit ?? '?'} remaining` +
+          (resetAt ? `, window resets at ${new Date(resetAt).toISOString()}` : '')
+      );
+    }
     if (Number.isFinite(remaining) && remaining <= 10 && Number.isFinite(reset) && reset > 0) {
       const resetAt = reset > 1e12 ? reset : reset * 1000;
       if (resetAt > Date.now()) pauseUntil = Math.max(pauseUntil, resetAt + 500);
@@ -242,7 +252,9 @@ async function allPages(pathname, key, pageLimit = 500) {
 
 function writeJson(filePath, data, pretty = false) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(data, null, pretty ? 2 : 0), 'utf8');
+  const tempPath = `${filePath}.tmp`;
+  fs.writeFileSync(tempPath, JSON.stringify(data, null, pretty ? 2 : 0), 'utf8');
+  fs.renameSync(tempPath, filePath);
 }
 
 function readJson(filePath, fallback = null) {
