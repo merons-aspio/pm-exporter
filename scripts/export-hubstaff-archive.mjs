@@ -24,7 +24,7 @@ const DEEP_DIR = path.join(ARCHIVE_DIR, 'deep');
 const MANIFEST_PATH = path.join(ARCHIVE_DIR, 'manifest.json');
 const TASKS_BASE = 'https://tasks.hubstaff.com/api/v1';
 const AUTH_BASE = 'https://account.hubstaff.com';
-const MIN_REQUEST_INTERVAL_MS = Number(process.env.ARCHIVE_REQUEST_INTERVAL_MS) || 700; // ~85 requests/minute
+const MIN_REQUEST_INTERVAL_MS = Number(process.env.ARCHIVE_REQUEST_INTERVAL_MS) || 2500; // ~95 req/min sequential, below the 120/min limit
 const DEEP_SAVE_EVERY = 20;
 
 const args = process.argv.slice(2);
@@ -530,9 +530,21 @@ async function exportDeep() {
 
   const onlyProject = getArg('--project') ? Number(getArg('--project')) : null;
   const retryErrors = hasFlag('--retry-errors');
+  // Sort projects by their most recent task's created_at descending (newest first).
+  // Read each core file to find the most recent task date.
   const projects = manifest.projects
     .filter((project) => project.accessible && (!onlyProject || project.id === onlyProject))
-    .sort((a, b) => a.taskCount - b.taskCount);
+    .sort((a, b) => {
+      const aRecent = readJson(path.join(PROJECT_DIR, projectFileName(a.id)), null)?.tasks?.reduce(
+        (max, t) => Math.max(max, new Date(t.created_at).valueOf() || 0),
+        0
+      ) || 0;
+      const bRecent = readJson(path.join(PROJECT_DIR, projectFileName(b.id)), null)?.tasks?.reduce(
+        (max, t) => Math.max(max, new Date(t.created_at).valueOf() || 0),
+        0
+      ) || 0;
+      return bRecent - aRecent;
+    });
 
   console.log(`Starting deep archive export for ${projects.length} projects…`);
 
@@ -575,7 +587,10 @@ async function exportDeep() {
     }
 
     const processed = new Set(deep.taskIds.map(Number));
-    const pending = (core.tasks || []).filter((task) => !processed.has(Number(task.id)));
+    // Sort pending tasks by created_at descending (newest first) to prioritize recent months
+    const pending = (core.tasks || [])
+      .filter((task) => !processed.has(Number(task.id)))
+      .sort((a, b) => new Date(b.created_at).valueOf() - new Date(a.created_at).valueOf());
     console.log(
       `[deep] ${entry.id} ${entry.name}: ${processed.size} already captured, ${pending.length} remaining`
     );
@@ -620,30 +635,28 @@ async function exportDeep() {
         }
       };
 
-      await Promise.all([
-        capture('comments', 'comments', deep.comments),
-        capture('checklists', 'checklists', deep.checklists),
-        capture('attachments', 'attachments', deep.attachments),
-        capture('time_entries', 'time_entries', deep.timeEntries),
-      ]);
+      // Capture deep fields one endpoint at a time to avoid request bursts that
+      // trigger Hubstaff's rate limit (120 requests/minute per token).
+      await capture('comments', 'comments', deep.comments);
+      await capture('checklists', 'checklists', deep.checklists);
+      await capture('attachments', 'attachments', deep.attachments);
+      await capture('time_entries', 'time_entries', deep.timeEntries);
 
       const taskChecklists = deep.checklists[String(taskId)] || [];
       if (taskChecklists.length > 0) {
-        await Promise.all(
-          taskChecklists.map(async (checklist) => {
-            if (deep.checklistItemsCaptured?.[String(checklist.id)]) return;
-            try {
-              checklist.items = await allPages(`/checklists/${checklist.id}/items`, 'checklist_items', 500);
-              deep.checklistItemsCaptured ||= {};
-              deep.checklistItemsCaptured[String(checklist.id)] = true;
-            } catch (error) {
-              if (error.status !== 404 && error.status !== 403) {
-                errors.push(`checklist ${checklist.id}: ${String(error.message || error).slice(0, 180)}`);
-              }
-              checklist.items ||= [];
+        for (const checklist of taskChecklists) {
+          if (deep.checklistItemsCaptured?.[String(checklist.id)]) continue;
+          try {
+            checklist.items = await allPages(`/checklists/${checklist.id}/items`, 'checklist_items', 500);
+            deep.checklistItemsCaptured ||= {};
+            deep.checklistItemsCaptured[String(checklist.id)] = true;
+          } catch (error) {
+            if (error.status !== 404 && error.status !== 403) {
+              errors.push(`checklist ${checklist.id}: ${String(error.message || error).slice(0, 180)}`);
             }
-          })
-        );
+            checklist.items ||= [];
+          }
+        }
       }
 
       deep.taskIds.push(taskId);

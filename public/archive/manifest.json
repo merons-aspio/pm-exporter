@@ -2,7 +2,7 @@
   "version": 1,
   "source": "Hubstaff Tasks API v1",
   "capturedAt": "2026-11-11T10:19:08.595Z",
-  "updatedAt": "2026-11-11T10:39:54.411Z",
+  "updatedAt": "2026-11-12T09:40:03.300Z",
   "organization": {
     "id": 163018,
     "name": "Aspio AB",
@@ -340,12 +340,12 @@
     "labels": 74,
     "members": 27,
     "estimatedHours": 881.2999999999997,
-    "comments": 179,
-    "checklists": 20,
-    "checklistItems": 0,
-    "attachments": 171,
-    "timeEntries": 137,
-    "timeSeconds": 749895
+    "comments": 296,
+    "checklists": 66,
+    "checklistItems": 205,
+    "attachments": 439,
+    "timeEntries": 672,
+    "timeSeconds": 5746101
   },
   "projects": [
     {
@@ -370,15 +370,15 @@
       "activeEstimatedHours": 763.2999999999997,
       "deepStatus": "partial",
       "deepCounts": {
-        "comments": 179,
-        "checklists": 20,
-        "checklistItems": 0,
-        "attachments": 171,
-        "timeEntries": 137,
-        "timeSeconds": 749895,
-        "capturedTasks": 140
+        "comments": 180,
+        "checklists": 22,
+        "checklistItems": 80,
+        "attachments": 173,
+        "timeEntries": 150,
+        "timeSeconds": 1007363,
+        "capturedTasks": 220
       },
-      "deepUpdatedAt": "2026-11-11T10:27:34.738Z"
+      "deepUpdatedAt": "2026-11-12T09:40:03.277Z"
     },
     {
       "id": 1110952,
@@ -400,17 +400,17 @@
       "labelCount": 19,
       "estimatedHours": 6,
       "activeEstimatedHours": 6,
-      "deepStatus": "pending",
+      "deepStatus": "partial",
       "deepCounts": {
-        "comments": 0,
-        "checklists": 0,
-        "checklistItems": 0,
-        "attachments": 0,
-        "timeEntries": 0,
-        "timeSeconds": 0,
-        "capturedTasks": 0
+        "comments": 42,
+        "checklists": 7,
+        "checklistItems": 6,
+        "attachments": 186,
+        "timeEntries": 328,
+        "timeSeconds": 3010200,
+        "capturedTasks": 500
       },
-      "deepUpdatedAt": null
+      "deepUpdatedAt": "2026-11-12T09:22:27.485Z"
     },
     {
       "id": 1132682,
@@ -432,17 +432,17 @@
       "labelCount": 9,
       "estimatedHours": 64,
       "activeEstimatedHours": 61,
-      "deepStatus": "pending",
+      "deepStatus": "complete",
       "deepCounts": {
-        "comments": 0,
-        "checklists": 0,
-        "checklistItems": 0,
-        "attachments": 0,
-        "timeEntries": 0,
-        "timeSeconds": 0,
-        "capturedTasks": 0
+        "comments": 74,
+        "checklists": 35,
+        "checklistItems": 112,
+        "attachments": 80,
+        "timeEntries": 188,
+        "timeSeconds": 1687300,
+        "capturedTasks": 152
       },
-      "deepUpdatedAt": null
+      "deepUpdatedAt": "2026-11-11T11:22:41.167Z"
     },
     {
       "id": 1137382,
@@ -464,17 +464,17 @@
       "labelCount": 1,
       "estimatedHours": 0,
       "activeEstimatedHours": 0,
-      "deepStatus": "pending",
+      "deepStatus": "complete",
       "deepCounts": {
         "comments": 0,
-        "checklists": 0,
-        "checklistItems": 0,
+        "checklists": 2,
+        "checklistItems": 7,
         "attachments": 0,
         "timeEntries": 0,
         "timeSeconds": 0,
-        "capturedTasks": 0
+        "capturedTasks": 10
       },
-      "deepUpdatedAt": null
+      "deepUpdatedAt": "2026-11-11T11:15:10.951Z"
     },
     {
       "id": 1291334,
@@ -496,7 +496,7 @@
       "labelCount": 9,
       "estimatedHours": 0,
       "activeEstimatedHours": 0,
-      "deepStatus": "pending",
+      "deepStatus": "complete",
       "deepCounts": {
         "comments": 0,
         "checklists": 0,
@@ -504,9 +504,9 @@
         "attachments": 0,
         "timeEntries": 0,
         "timeSeconds": 0,
-        "capturedTasks": 0
+        "capturedTasks": 3
       },
-      "deepUpdatedAt": null
+      "deepUpdatedAt": "2026-11-11T11:14:41.396Z"
     },
     {
       "id": 1138895,
@@ -528,17 +528,17 @@
       "labelCount": 4,
       "estimatedHours": 0,
       "activeEstimatedHours": 0,
-      "deepStatus": "partial",
+      "deepStatus": "complete",
       "deepCounts": {
         "comments": 0,
         "checklists": 0,
         "checklistItems": 0,
         "attachments": 0,
-        "timeEntries": 0,
-        "timeSeconds": 0,
+        "timeEntries": 6,
+        "timeSeconds": 41238,
         "capturedTasks": 1
       },
-      "deepUpdatedAt": "2026-11-11T10:39:54.400Z"
+      "deepUpdatedAt": "2026-11-11T11:14:32.984Z"
     },
     {
       "id": 1127666,
